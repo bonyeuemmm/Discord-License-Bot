@@ -26,8 +26,9 @@ const keySchema = new mongoose.Schema({
 const Key = mongoose.model('Key', keySchema);
 
 // Kết nối MongoDB
+console.log('🔄 Đang tiến hành kết nối đến MongoDB Atlas...');
 mongoose.connect(MONGODB_URI)
-    .then(() => console.log('✅ Đã kết nối MongoDB Atlas'))
+    .then(() => console.log('✅ Đã kết nối MongoDB Atlas thành công!'))
     .catch(err => console.error('❌ Lỗi kết nối MongoDB:', err));
 
 const app = express();
@@ -51,7 +52,7 @@ app.post('/api/verify', async (req, res) => {
 
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`API Server đang chạy trên cổng ${PORT}`);
+    console.log(`🌐 API Server đang chạy trên cổng ${PORT}`);
 });
 
 const client = new Client({ 
@@ -89,8 +90,12 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 client.once('ready', async () => {
-    await rest.put(Routes.applicationCommands(CLIENT_ID || client.user.id), { body: commands });
-    console.log(`✅ Bot Discord đã sẵn sàng: ${client.user.tag}`);
+    try {
+        await rest.put(Routes.applicationCommands(CLIENT_ID || client.user.id), { body: commands });
+        console.log(`✅ Đăng ký Slash Commands thành công! Bot Discord đã sẵn sàng: ${client.user.tag}`);
+    } catch (error) {
+        console.error('❌ Lỗi đăng ký Slash Commands:', error);
+    }
 });
 
 client.on('interactionCreate', async interaction => {
@@ -205,9 +210,12 @@ client.on('interactionCreate', async interaction => {
             interaction.editReply({ embeds: [embed] });
         }
     } catch (error) {
-        console.error(error);
+        console.error('❌ Lỗi xử lý lệnh:', error);
         interaction.editReply({ content: "❌ Đã xảy ra lỗi khi xử lý lệnh!" });
     }
 });
 
-client.login(TOKEN).catch(console.error);
+console.log('🤖 Đang tiến hành đăng nhập bot Discord...');
+client.login(TOKEN).catch(err => {
+    console.error('❌ LỖI ĐĂNG NHẬP DISCORD:', err);
+});
