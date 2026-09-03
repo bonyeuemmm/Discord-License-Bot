@@ -3,6 +3,12 @@ const mongoose = require('mongoose');
 const express = require('express');
 
 const TOKEN = process.env.DISCORD_TOKEN;
+
+if (!TOKEN || typeof TOKEN !== 'string' || TOKEN.trim() === '') {
+    console.error('[FATAL] DISCORD_TOKEN không tồn tại hoặc không hợp lệ.');
+    process.exit(1);
+}
+
 const CLIENT_ID = process.env.CLIENT_ID;
 const MONGODB_URI = process.env.MONGODB_URI;
 const OWNER_ID = '1208450889246048306';
@@ -32,7 +38,6 @@ mongoose.connect(MONGODB_URI)
 const app = express();
 app.use(express.json());
 
-// Thêm tuyến đường gốc GET để Render health check không bị lỗi 404
 app.get('/', (req, res) => {
     res.status(200).send('Bot is active and running successfully!');
 });
