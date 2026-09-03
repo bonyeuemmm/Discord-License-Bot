@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: discord-license-bot
-    env: node
-    buildCommand: npm install
-    startCommand: node index.js
-    plan: free
-  
