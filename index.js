@@ -10,7 +10,6 @@ const THUMBNAIL_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
 
 const getRandomColor = () => Math.floor(Math.random() * 16777215);
 
-// Khởi tạo MongoDB Schema
 const adminSchema = new mongoose.Schema({ user_id: String });
 const Admin = mongoose.model('Admin', adminSchema);
 
@@ -25,7 +24,6 @@ const keySchema = new mongoose.Schema({
 });
 const Key = mongoose.model('Key', keySchema);
 
-// Kết nối MongoDB
 console.log('🔄 Đang tiến hành kết nối đến MongoDB Atlas...');
 mongoose.connect(MONGODB_URI)
     .then(() => console.log('✅ Đã kết nối MongoDB Atlas thành công!'))
@@ -33,6 +31,11 @@ mongoose.connect(MONGODB_URI)
 
 const app = express();
 app.use(express.json());
+
+// Thêm tuyến đường gốc GET để Render health check không bị lỗi 404
+app.get('/', (req, res) => {
+    res.status(200).send('Bot is active and running successfully!');
+});
 
 app.post('/api/verify', async (req, res) => {
     const { key, hwid } = req.body;
