@@ -83,7 +83,7 @@ const commands = [
     new SlashCommandBuilder().setName('createkey').setDescription('Tạo key bản quyền')
         .addStringOption(opt => opt.setName('duration').setDescription('Thời hạn').setRequired(true).addChoices({name: '1 Ngày', value: '1'}, {name: '3 Ngày', value: '3'}, {name: '7 Ngày', value: '7'}, {name: '30 Ngày', value: '30'}, {name: 'Vĩnh viễn', value: '0'}))
         .addUserOption(opt => opt.setName('user').setDescription('Nhận key qua DM').setRequired(false)),
-    new SlashCommandBuilder().setName('createkeyresethwid').setDescription('Tạo token reset HWID')
+    new SlashCommandBuilder().setName('gettoken').setDescription('Tạo token reset HWID')
         .addUserOption(opt => opt.setName('user').setDescription('Nhận token qua DM').setRequired(false)),
     new SlashCommandBuilder().setName('getkey').setDescription('Thống kê key'),
     new SlashCommandBuilder().setName('removekey').setDescription('Xóa key (Chỉ Owner)')
@@ -97,10 +97,41 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-client.once('ready', async () => {
+// Cơ chế tự động quét key hết hạn mỗi 60 phút
+async function checkExpiredKeys() {
+    try {
+        const now = Date.now();
+        const expiredKeys = await Key.find({ expires_at: { $ne: 0, $lt: now } });
+        
+        for (const row of expiredKeys) {
+            if (row.user_id) {
+                try {
+                    const user = await client.users.fetch(row.user_id);
+                    const embed = new EmbedBuilder()
+                        .setColor(0xFF0000)
+                        .setTitle('⌛ Thông Báo Hết Hạn Key')
+                        .setDescription('Key bản quyền của bạn đã chính thức **hết hạn** và bị xóa khỏi hệ thống của bot. Vui lòng nhập key mới để tiếp tục sử dụng dịch vụ.')
+                        .setThumbnail(THUMBNAIL_URL)
+                        .setTimestamp();
+                    await user.send({ embeds: [embed] });
+                } catch (e) {
+                    // Không gửi được DM cho user thì bỏ qua
+                }
+            }
+            await Key.deleteOne({ _id: row._id });
+        }
+    } catch (err) {
+        console.error('❌ Lỗi khi quét key hết hạn:', err);
+    }
+}
+
+client.once('clientReady', async () => {
     try {
         await rest.put(Routes.applicationCommands(CLIENT_ID || client.user.id), { body: commands });
         console.log(`✅ Đăng ký Slash Commands thành công! Bot Discord đã sẵn sàng: ${client.user.tag}`);
+        
+        // Chạy quét key hết hạn lần đầu và lặp lại mỗi 1 tiếng
+        setInterval(checkExpiredKeys, 60 * 60 * 1000);
     } catch (error) {
         console.error('❌ Lỗi đăng ký Slash Commands:', error);
     }
@@ -118,7 +149,12 @@ client.on('interactionCreate', async interaction => {
         const timestamps = cooldowns.get(userId);
         const now = Date.now();
         if (timestamps.has(commandName) && now < timestamps.get(commandName) + COOLDOWN_TIME) {
-            return interaction.editReply({ content: `⏳ **Thao tác quá nhanh!** Vui lòng đợi ${( (timestamps.get(commandName) + COOLDOWN_TIME - now) / 1000 ).toFixed(1)}s.` });
+            const embed = new EmbedBuilder()
+                .setColor(0xFFA500)
+                .setTitle('⏳ Thao Tác Quá Nhanh')
+                .setDescription(`Vui lòng đợi **${((timestamps.get(commandName) + COOLDOWN_TIME - now) / 1000).toFixed(1)}s** trước khi tiếp tục.`)
+                .setThumbnail(THUMBNAIL_URL);
+            return interaction.editReply({ embeds: [embed] });
         }
         timestamps.set(commandName, now);
         setTimeout(() => timestamps.delete(commandName), COOLDOWN_TIME);
@@ -126,21 +162,27 @@ client.on('interactionCreate', async interaction => {
 
     try {
         if (commandName === 'setadmin') {
-            if (userId !== OWNER_ID) return interaction.editReply({ content: "❌ **Từ chối!** Chỉ Owner." });
+            if (userId !== OWNER_ID) {
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Từ Chối Truy Cập').setDescription('Chỉ Owner mới có quyền thực hiện lệnh này!').setThumbnail(THUMBNAIL_URL)] });
+            }
             const action = interaction.options.getString('action');
             const target = interaction.options.getUser('user');
 
             if (action === 'add') {
                 await Admin.findOneAndUpdate({ user_id: target.id }, { user_id: target.id }, { upsert: true });
-                interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🛡️ Đã Thêm Admin').setDescription(`✅ Đã thêm **${target.tag}**.`)] });
+                const embed = new EmbedBuilder().setColor(getRandomColor()).setTitle('🛡️ Đã Thêm Admin').setDescription(`✅ Đã thêm thành công **${target.tag}** vào danh sách quản trị viên.`).setThumbnail(THUMBNAIL_URL);
+                interaction.editReply({ embeds: [embed] });
             } else {
                 await Admin.deleteOne({ user_id: target.id });
-                interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🛡️ Đã Xóa Admin').setDescription(`✅ Đã xóa **${target.tag}**.`)] });
+                const embed = new EmbedBuilder().setColor(getRandomColor()).setTitle('🛡️ Đã Xóa Admin').setDescription(`✅ Đã xóa **${target.tag}** khỏi danh sách quản trị viên.`).setThumbnail(THUMBNAIL_URL);
+                interaction.editReply({ embeds: [embed] });
             }
         } 
         else if (commandName === 'createkey') {
             const isAdmin = await Admin.findOne({ user_id: userId });
-            if (!isAdmin && userId !== OWNER_ID) return interaction.editReply({ content: "❌ **Từ chối!** Bạn không có quyền." });
+            if (!isAdmin && userId !== OWNER_ID) {
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Từ Chối Truy Cập').setDescription('Bạn không có quyền sử dụng lệnh này!').setThumbnail(THUMBNAIL_URL)] });
+            }
 
             const duration = parseInt(interaction.options.getString('duration'));
             const targetUser = interaction.options.getUser('user');
@@ -149,36 +191,81 @@ client.on('interactionCreate', async interaction => {
 
             await new Key({ key: keyStr, expires_at: expiresAt }).save();
             
-            try { await (await client.users.fetch(OWNER_ID)).send(`📢 **Key mới:** Tạo bởi <@${userId}> | Hạn: ${duration} ngày | \`${keyStr}\``); } catch (e) {}
+            try { 
+                const ownerEmbed = new EmbedBuilder()
+                    .setColor(0x00FF00)
+                    .setTitle('📢 Thông Báo Tạo Key Mới')
+                    .setDescription(`• **Người tạo:** <@${userId}>\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n• **Key:** \`${keyStr}\``)
+                    .setThumbnail(THUMBNAIL_URL);
+                await (await client.users.fetch(OWNER_ID)).send({ embeds: [ownerEmbed] }); 
+            } catch (e) {}
 
             if (targetUser) {
                 try {
-                    await targetUser.send(`🎉 **Key bản quyền:** \`${keyStr}\`\nSử dụng lệnh \`/redeem key:${keyStr}\``);
-                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🎟️ Đã Tạo').setDescription(`✅ Đã gửi cho **${targetUser.tag}**.`)] });
+                    const dmEmbed = new EmbedBuilder()
+                        .setColor(0x00FF00)
+                        .setTitle('🎉 Nhận Key Bản Quyền')
+                        .setDescription(`Bạn vừa nhận được một key kích hoạt từ quản trị viên.\n\n• **Key:** \`${keyStr}\`\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n\nHãy dùng lệnh \`/redeem key:${keyStr}\` trong server để kích hoạt!`)
+                        .setThumbnail(THUMBNAIL_URL);
+                    await targetUser.send({ embeds: [dmEmbed] });
+
+                    const replyEmbed = new EmbedBuilder().setColor(getRandomColor()).setTitle('🎟️ Đã Tạo Key Thành Công').setDescription(`✅ Đã tạo và gửi key trực tiếp qua DM cho **${targetUser.tag}**.\n• **Key:** \`${keyStr}\``).setThumbnail(THUMBNAIL_URL);
+                    interaction.editReply({ embeds: [replyEmbed] });
                 } catch (e) {
-                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🎟️ Đã Tạo').setDescription(`⚠️ Không thể DM. Key: \`${keyStr}\``)] });
+                    const replyEmbed = new EmbedBuilder().setColor(0xFFA500).setTitle('🎟️ Đã Tạo Key').setDescription(`⚠️ Không thể gửi DM cho **${targetUser.tag}**.\n• **Key:** \`${keyStr}\``).setThumbnail(THUMBNAIL_URL);
+                    interaction.editReply({ embeds: [replyEmbed] });
                 }
             } else {
-                interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🎟️ Đã Tạo').setDescription(`✅ Key:\n\`${keyStr}\``)] });
+                const replyEmbed = new EmbedBuilder().setColor(getRandomColor()).setTitle('🎟️ Đã Tạo Key Thành Công').setDescription(`✅ Khởi tạo key thành công:\n\`${keyStr}\``).setThumbnail(THUMBNAIL_URL);
+                interaction.editReply({ embeds: [replyEmbed] });
+            }
+        }
+        else if (commandName === 'gettoken') {
+            const isAdmin = await Admin.findOne({ user_id: userId });
+            if (!isAdmin && userId !== OWNER_ID) {
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Từ Chối').setDescription('Bạn không có quyền thực hiện lệnh này!').setThumbnail(THUMBNAIL_URL)] });
+            }
+            const targetUser = interaction.options.getUser('user');
+            const tokenStr = `token_${Math.floor(100000 + Math.random() * 900000)}`;
+
+            if (targetUser) {
+                try {
+                    const dmEmbed = new EmbedBuilder()
+                        .setColor(0x00FFFF)
+                        .setTitle('🔑 Token Reset HWID Của Bạn')
+                        .setDescription(`Token dùng để reset phần cứng:\n\`${tokenStr}\``)
+                        .setThumbnail(THUMBNAIL_URL);
+                    await targetUser.send({ embeds: [dmEmbed] });
+                    
+                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('✅ Thành Công').setDescription(`Đã gửi token reset HWID tới **${targetUser.tag}** qua DM.\n• Token: \`${tokenStr}\``).setThumbnail(THUMBNAIL_URL)] });
+                } catch (e) {
+                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFFA500).setTitle('⚠️ Cảnh Báo').setDescription(`Không thể gửi DM cho user này. Token:\n\`${tokenStr}\``).setThumbnail(THUMBNAIL_URL)] });
+                }
+            } else {
+                interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🔑 Token Reset HWID').setDescription(`Token của bạn:\n\`${tokenStr}\``).setThumbnail(THUMBNAIL_URL)] });
             }
         }
         else if (commandName === 'removekey') {
-            if (userId !== OWNER_ID) return interaction.editReply({ content: "❌ **Từ chối!** Chỉ Owner." });
+            if (userId !== OWNER_ID) {
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Từ Chối').setDescription('Chỉ Owner mới có quyền xóa key!').setThumbnail(THUMBNAIL_URL)] });
+            }
             const toolKey = interaction.options.getString('toolkey');
             const row = await Key.findOneAndDelete({ assigned_key: toolKey });
             
-            if (!row) return interaction.editReply({ content: `❌ Không tìm thấy key \`${toolKey}\`.` });
-            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🗑️ Đã Xóa').setDescription(`✅ Đã xóa vĩnh viễn:\n\`${toolKey}\``)] });
+            if (!row) {
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Lỗi').setDescription(`Không tìm thấy key tool với mã: \`${toolKey}\``).setThumbnail(THUMBNAIL_URL)] });
+            }
+            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🗑️ Đã Xóa Key').setDescription(`✅ Đã xóa vĩnh viễn key tool:\n\`${toolKey}\``).setThumbnail(THUMBNAIL_URL)] });
         }
         else if (commandName === 'redeem') {
             const inputKey = interaction.options.getString('key');
             const row = await Key.findOne({ key: inputKey });
             
-            if (!row) return interaction.editReply({ content: "❌ Key không tồn tại!" });
-            if (row.is_used === 1 || row.assigned_key) return interaction.editReply({ content: "❌ Key đã được kích hoạt!" });
+            if (!row) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Thất Bại').setDescription('Mã key không tồn tại trong hệ thống!').setThumbnail(THUMBNAIL_URL)] });
+            if (row.is_used === 1 || row.assigned_key) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFFA500).setTitle('⚠️ Thất Bại').setDescription('Mã key này đã được kích hoạt trước đó!').setThumbnail(THUMBNAIL_URL)] });
             if (row.expires_at !== 0 && Date.now() > row.expires_at) {
                 await Key.deleteOne({ key: inputKey });
-                return interaction.editReply({ content: "❌ Key đã hết hạn!" });
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Thất Bại').setDescription('Mã key này đã hết hạn sử dụng!').setThumbnail(THUMBNAIL_URL)] });
             }
 
             const assignedKey = `pain_key_${Math.floor(100000 + Math.random() * 900000)}`;
@@ -187,39 +274,40 @@ client.on('interactionCreate', async interaction => {
             row.is_used = 1;
             await row.save();
 
-            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🎉 Kích Hoạt Thành Công').setDescription(`Key tool của bạn:\n\`${assignedKey}\``)] });
+            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🎉 Kích Hoạt Thành Công').setDescription(`Kích hoạt thành công!\n• Key tool của bạn: \`${assignedKey}\``).setThumbnail(THUMBNAIL_URL)] });
         }
         else if (commandName === 'resethwid') {
             const inputKey = interaction.options.getString('key');
             const row = await Key.findOne({ assigned_key: inputKey, user_id: userId });
             
-            if (!row) return interaction.editReply({ content: "❌ Key không hợp lệ hoặc không thuộc về bạn!" });
+            if (!row) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Thất Bại').setDescription('Key không hợp lệ hoặc không thuộc sở hữu của bạn!').setThumbnail(THUMBNAIL_URL)] });
 
             const now = Date.now();
             const cooldown = 24 * 60 * 60 * 1000;
             if (!interaction.options.getString('token') && (now - row.last_reset < cooldown)) {
-                return interaction.editReply({ content: `⏳ **Chờ:** Còn ${Math.ceil((cooldown - (now - row.last_reset)) / 3600000)} giờ để reset HWID.` });
+                const hoursLeft = Math.ceil((cooldown - (now - row.last_reset)) / 3600000);
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFFA500).setTitle('⏳ Đang Chờ Cooldown').setDescription(`Vui lòng đợi thêm **${hoursLeft} giờ** nữa để reset HWID hoặc dùng token cấp phép.`).setThumbnail(THUMBNAIL_URL)] });
             }
 
             row.hwid = null;
             row.last_reset = now;
             await row.save();
-            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🔄 Reset HWID').setDescription(`✅ Đã reset phần cứng cho key: \`${inputKey}\``)] });
+            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🔄 Reset HWID Thành Công').setDescription(`✅ Đã reset phần cứng thành công cho key: \`${inputKey}\``).setThumbnail(THUMBNAIL_URL)] });
         }
         else if (commandName === 'getkey') {
             const rows = await Key.find().limit(20);
-            if (!rows.length) return interaction.editReply({ content: "📂 Trống: Hệ thống không có key nào." });
+            if (!rows.length) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFFA500).setTitle('📂 Thống Kê Key').setDescription('Hiện tại hệ thống không có dữ liệu key nào.').setThumbnail(THUMBNAIL_URL)] });
 
-            const embed = new EmbedBuilder().setColor(getRandomColor()).setTitle('📊 Thống Kê Key').setThumbnail(THUMBNAIL_URL);
+            const embed = new EmbedBuilder().setColor(getRandomColor()).setTitle('📊 Thống Kê Key Hệ Thống').setThumbnail(THUMBNAIL_URL);
             rows.forEach((r, i) => {
                 let status = r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > Date.now() ? `Còn ${Math.ceil((r.expires_at - Date.now())/3600000)} giờ` : 'Đã hết hạn');
-                embed.addFields({ name: `🔑 Key #${i + 1}`, value: `\`${r.assigned_key || 'Chưa_redeem'}\`\n• Hạn: ${status}` });
+                embed.addFields({ name: `🔑 Key #${i + 1}`, value: `• Tool Key: \`${r.assigned_key || 'Chưa redeem'}\`\n• Hạn: ${status}` });
             });
             interaction.editReply({ embeds: [embed] });
         }
     } catch (error) {
         console.error('❌ Lỗi xử lý lệnh:', error);
-        interaction.editReply({ content: "❌ Đã xảy ra lỗi khi xử lý lệnh!" });
+        interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Lỗi Hệ Thống').setDescription('Đã xảy ra lỗi không mong muốn khi xử lý yêu cầu!').setThumbnail(THUMBNAIL_URL)] });
     }
 });
 
