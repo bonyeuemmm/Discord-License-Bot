@@ -89,7 +89,7 @@ const commands = [
     new SlashCommandBuilder().setName('removekey').setDescription('Xóa key (Chỉ Owner)')
         .addStringOption(opt => opt.setName('toolkey').setDescription('Tool key').setRequired(true)),
     new SlashCommandBuilder().setName('resethwid').setDescription('Reset HWID')
-        .addStringOption(opt => opt.setName('key').setDescription('Tool Key').setRequired(true))
+        .addStringOption(opt => opt.setName('key').setDescription('Chọn key của bạn').setRequired(true).setAutocomplete(true))
         .addStringOption(opt => opt.setName('token').setDescription('Token (Tùy chọn)').setRequired(false)),
     new SlashCommandBuilder().setName('redeem').setDescription('Kích hoạt key')
         .addStringOption(opt => opt.setName('key').setDescription('Nhập key 10 số').setRequired(true))
@@ -97,7 +97,6 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-// Cơ chế tự động quét key hết hạn mỗi 60 phút
 async function checkExpiredKeys() {
     try {
         const now = Date.now();
@@ -114,9 +113,7 @@ async function checkExpiredKeys() {
                         .setThumbnail(THUMBNAIL_URL)
                         .setTimestamp();
                     await user.send({ embeds: [embed] });
-                } catch (e) {
-                    // Không gửi được DM cho user thì bỏ qua
-                }
+                } catch (e) {}
             }
             await Key.deleteOne({ _id: row._id });
         }
@@ -130,7 +127,6 @@ client.once('clientReady', async () => {
         await rest.put(Routes.applicationCommands(CLIENT_ID || client.user.id), { body: commands });
         console.log(`✅ Đăng ký Slash Commands thành công! Bot Discord đã sẵn sàng: ${client.user.tag}`);
         
-        // Chạy quét key hết hạn lần đầu và lặp lại mỗi 1 tiếng
         setInterval(checkExpiredKeys, 60 * 60 * 1000);
     } catch (error) {
         console.error('❌ Lỗi đăng ký Slash Commands:', error);
@@ -138,6 +134,26 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+    if (interaction.isAutocomplete()) {
+        if (interaction.commandName === 'resethwid') {
+            try {
+                const userId = interaction.user.id;
+                const userKeys = await Key.find({ user_id: userId, assigned_key: { $ne: null } }).limit(25);
+                
+                const choices = userKeys.map(k => ({
+                    name: `${k.assigned_key} ${k.hwid ? '(Đã khóa HWID)' : '(Chưa có HWID)'}`,
+                    value: k.assigned_key
+                }));
+
+                await interaction.respond(choices);
+            } catch (err) {
+                console.error('❌ Lỗi Autocomplete resethwid:', err);
+                await interaction.respond([]);
+            }
+        }
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
     await interaction.deferReply({ ephemeral: true });
 
