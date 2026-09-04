@@ -315,9 +315,22 @@ client.on('interactionCreate', async interaction => {
             if (!rows.length) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFFA500).setTitle('📂 Thống Kê Key').setDescription('Hiện tại hệ thống không có dữ liệu key nào.').setThumbnail(THUMBNAIL_URL)] });
 
             const embed = new EmbedBuilder().setColor(getRandomColor()).setTitle('📊 Thống Kê Key Hệ Thống').setThumbnail(THUMBNAIL_URL);
+            const now = Date.now();
+            const cooldown = 24 * 60 * 60 * 1000;
+
             rows.forEach((r, i) => {
-                let status = r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > Date.now() ? `Còn ${Math.ceil((r.expires_at - Date.now())/3600000)} giờ` : 'Đã hết hạn');
-                embed.addFields({ name: `🔑 Key #${i + 1}`, value: `• Tool Key: \`${r.assigned_key || 'Chưa redeem'}\`\n• Hạn: ${status}` });
+                let status = r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > now ? `Còn ${Math.ceil((r.expires_at - now)/3600000)} giờ` : 'Đã hết hạn');
+                
+                let resetStatus = 'Có thể reset ngay';
+                if (r.last_reset && (now - r.last_reset < cooldown)) {
+                    let hoursLeft = Math.ceil((cooldown - (now - r.last_reset)) / 3600000);
+                    resetStatus = `Cooldown (${hoursLeft}h)`;
+                }
+
+                embed.addFields({ 
+                    name: `🔑 Key #${i + 1}`, 
+                    value: `• Tool Key: \`${r.assigned_key || 'Chưa redeem'}\`\n• Hạn: ${status}\n• Reset HWID: ${resetStatus}` 
+                });
             });
             interaction.editReply({ embeds: [embed] });
         }
