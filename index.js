@@ -1,4 +1,13 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { 
+    Client, 
+    GatewayIntentBits, 
+    REST, 
+    Routes, 
+    SlashCommandBuilder, 
+    EmbedBuilder, 
+    ActionRowBuilder, 
+    StringSelectMenuBuilder 
+} = require('discord.js');
 const mongoose = require('mongoose');
 const express = require('express');
 
@@ -92,7 +101,7 @@ const commands = [
         .addUserOption(opt => opt.setName('user').setDescription('Nhận key qua DM').setRequired(false)),
     new SlashCommandBuilder().setName('gettoken').setDescription('Tạo token reset HWID')
         .addUserOption(opt => opt.setName('user').setDescription('Nhận token qua DM').setRequired(false)),
-    new SlashCommandBuilder().setName('getkey').setDescription('Thống kê key'),
+    new SlashCommandBuilder().setName('getkey').setDescription('Lấy key và xem thống kê trạng thái key của bạn'),
     new SlashCommandBuilder().setName('removekey').setDescription('Xóa key (Chỉ Owner)')
         .addStringOption(opt => opt.setName('toolkey').setDescription('Tool key').setRequired(true)),
     new SlashCommandBuilder().setName('resethwid').setDescription('Reset HWID')
@@ -129,7 +138,7 @@ async function checkExpiredKeys() {
     }
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     try {
         await rest.put(Routes.applicationCommands(CLIENT_ID || client.user.id), { body: commands });
         console.log(`✅ Đăng ký Slash Commands thành công! Bot Discord đã sẵn sàng: ${client.user.tag}`);
@@ -141,6 +150,51 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+    // Xử lý Select Menu từ lệnh /getkey
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === 'select_getkey') {
+            const selectedKeyStr = interaction.values[0];
+            const userId = interaction.user.id;
+
+            const row = await Key.findOne({ assigned_key: selectedKeyStr });
+            
+            if (!row || row.user_id !== userId) {
+                return interaction.reply({ 
+                    content: '❌ Key này không còn tồn tại hoặc không thuộc quyền sở hữu của bạn!', 
+                    ephemeral: true 
+                });
+            }
+
+            const now = Date.now();
+            const cooldown = 24 * 60 * 60 * 1000;
+
+            let expireText = r => r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > now ? `<t:${Math.floor(r.expires_at / 1000)}:R>` : 'Đã hết hạn');
+            let resetStatusText = '🟢 Đã sẵn sàng để reset hwid';
+
+            if (row.last_reset && (now - row.last_reset < cooldown)) {
+                const diffMs = cooldown - (now - row.last_reset);
+                const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
+                const minsLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                resetStatusText = `🔴 Bạn còn **${hoursLeft} giờ ${minsLeft} phút** để reset lại`;
+            }
+
+            const detailEmbed = new EmbedBuilder()
+                .setColor(getRandomColor())
+                .setTitle(`🔑 Thông Tin Key: ${row.assigned_key}`)
+                .setThumbnail(THUMBNAIL_URL)
+                .addFields(
+                    { name: '🔑 Tool Key', value: `\`${row.assigned_key}\``, inline: false },
+                    { name: '⌛ Hạn Sử Dụng', value: expireText(row), inline: true },
+                    { name: '🖥️ Trạng Thái HWID', value: row.hwid ? '🔒 Đã liên kết' : '🔓 Chưa liên kết', inline: true },
+                    { name: '🔄 Trạng Thái Reset HWID', value: resetStatusText, inline: false }
+                )
+                .setTimestamp();
+
+            return interaction.reply({ embeds: [detailEmbed], ephemeral: true });
+        }
+        return;
+    }
+
     if (interaction.isAutocomplete()) {
         if (interaction.commandName === 'resethwid') {
             try {
@@ -162,10 +216,13 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (!interaction.isChatInputCommand()) return;
-    await interaction.deferReply({ ephemeral: true });
 
     const userId = interaction.user.id;
     const { commandName } = interaction;
+
+    // Phản hồi công khai cho /getkey
+    const isPublicCommand = (commandName === 'getkey');
+    await interaction.deferReply({ ephemeral: !isPublicCommand });
 
     if (userId !== OWNER_ID) {
         if (!cooldowns.has(userId)) cooldowns.set(userId, new Map());
@@ -214,14 +271,18 @@ client.on('interactionCreate', async interaction => {
 
             await new Key({ key: keyStr, expires_at: expiresAt }).save();
             
-            try { 
-                const ownerEmbed = new EmbedBuilder()
-                    .setColor(0x00FF00)
-                    .setTitle('📢 Thông Báo Tạo Key Mới')
-                    .setDescription(`• **Người tạo:** <@${userId}>\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n• **Key:** \`${keyStr}\``)
-                    .setThumbnail(THUMBNAIL_URL);
-                await (await client.users.fetch(OWNER_ID)).send({ embeds: [ownerEmbed] }); 
-            } catch (e) {}
+            if (userId !== OWNER_ID) {
+                try { 
+                    const ownerEmbed = new EmbedBuilder()
+                        .setColor(0x00FF00)
+                        .setTitle('📢 Thông Báo Admin Tạo Key Mới')
+                        .setDescription(`• **Admin thực hiện:** <@${userId}>\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n• **Key:** \`${keyStr}\`\n• **Gửi tới:** ${targetUser ? targetUser.tag : 'Không chọn'}`)
+                        .setThumbnail(THUMBNAIL_URL)
+                        .setTimestamp();
+                    const owner = await client.users.fetch(OWNER_ID);
+                    await owner.send({ embeds: [ownerEmbed] }); 
+                } catch (e) {}
+            }
 
             if (targetUser) {
                 try {
@@ -250,6 +311,19 @@ client.on('interactionCreate', async interaction => {
             }
             const targetUser = interaction.options.getUser('user');
             const tokenStr = `token_${Math.floor(100000 + Math.random() * 900000)}`;
+
+            if (userId !== OWNER_ID) {
+                try {
+                    const ownerEmbed = new EmbedBuilder()
+                        .setColor(0x00FFFF)
+                        .setTitle('📢 Thông Báo Admin Tạo Token Reset HWID')
+                        .setDescription(`• **Admin thực hiện:** <@${userId}>\n• **Token:** \`${tokenStr}\`\n• **Gửi tới:** ${targetUser ? targetUser.tag : 'Không chọn'}`)
+                        .setThumbnail(THUMBNAIL_URL)
+                        .setTimestamp();
+                    const owner = await client.users.fetch(OWNER_ID);
+                    await owner.send({ embeds: [ownerEmbed] });
+                } catch (e) {}
+            }
 
             if (targetUser) {
                 try {
@@ -297,49 +371,77 @@ client.on('interactionCreate', async interaction => {
             row.is_used = 1;
             await row.save();
 
+            try {
+                const ownerEmbed = new EmbedBuilder()
+                    .setColor(0x00FF00)
+                    .setTitle('🔔 Thông Báo Member Kích Hoạt Key')
+                    .setDescription(`• **Thành viên:** <@${userId}> (\`${interaction.user.tag}\`)\n• **Key gốc:** \`${inputKey}\`\n• **Tool Key được cấp:** \`${assignedKey}\``)
+                    .setThumbnail(THUMBNAIL_URL)
+                    .setTimestamp();
+                const owner = await client.users.fetch(OWNER_ID);
+                await owner.send({ embeds: [ownerEmbed] });
+            } catch (e) {
+                console.error('❌ Không thể gửi DM cho Owner khi Redeem:', e);
+            }
+
             interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🎉 Kích Hoạt Thành Công').setDescription(`Kích hoạt thành công!\n• Key tool của bạn: \`${assignedKey}\``).setThumbnail(THUMBNAIL_URL)] });
         }
         else if (commandName === 'resethwid') {
             const inputKey = interaction.options.getString('key');
+            const tokenInput = interaction.options.getString('token');
             const row = await Key.findOne({ assigned_key: inputKey, user_id: userId });
             
             if (!row) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Thất Bại').setDescription('Key không hợp lệ hoặc không thuộc sở hữu của bạn!').setThumbnail(THUMBNAIL_URL)] });
 
             const now = Date.now();
             const cooldown = 24 * 60 * 60 * 1000;
-            if (!interaction.options.getString('token') && (now - row.last_reset < cooldown)) {
+
+            if (!tokenInput && (now - row.last_reset < cooldown)) {
                 const hoursLeft = Math.ceil((cooldown - (now - row.last_reset)) / 3600000);
                 return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFFA500).setTitle('⏳ Đang Chờ Cooldown').setDescription(`Vui lòng đợi thêm **${hoursLeft} giờ** nữa để reset HWID hoặc dùng token cấp phép.`).setThumbnail(THUMBNAIL_URL)] });
             }
 
             row.hwid = null;
-            row.last_reset = now;
+            // Nếu reset không bằng token thì mới cập nhật thời gian cooldown
+            if (!tokenInput) {
+                row.last_reset = now;
+            }
             await row.save();
-            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🔄 Reset HWID Thành Công').setDescription(`✅ Đã reset phần cứng thành công cho key: \`${inputKey}\``).setThumbnail(THUMBNAIL_URL)] });
+
+            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🔄 Reset HWID Thành Công').setDescription(`✅ Đã reset phần cứng thành công cho key: \`${inputKey}\`${tokenInput ? ' (Dùng Token)' : ''}`).setThumbnail(THUMBNAIL_URL)] });
         }
         else if (commandName === 'getkey') {
-            const rows = await Key.find().limit(20);
-            if (!rows.length) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFFA500).setTitle('📂 Thống Kê Key').setDescription('Hiện tại hệ thống không có dữ liệu key nào.').setThumbnail(THUMBNAIL_URL)] });
+            const userKeys = await Key.find({ user_id: userId, assigned_key: { $ne: null } });
 
-            const embed = new EmbedBuilder().setColor(getRandomColor()).setTitle('📊 Thống Kê Key Hệ Thống').setThumbnail(THUMBNAIL_URL);
-            const now = Date.now();
-            const cooldown = 24 * 60 * 60 * 1000;
+            const publicEmbed = new EmbedBuilder()
+                .setColor(getRandomColor())
+                .setTitle('🔑 Lấy Key & Trạng Thái')
+                .setDescription('Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới.')
+                .setThumbnail(THUMBNAIL_URL)
+                .setTimestamp();
 
-            rows.forEach((r, i) => {
-                let status = r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > now ? `Còn ${Math.ceil((r.expires_at - now)/3600000)} giờ` : 'Đã hết hạn');
-                
-                let resetStatus = 'Có thể reset ngay';
-                if (r.last_reset && (now - r.last_reset < cooldown)) {
-                    let hoursLeft = Math.ceil((cooldown - (now - r.last_reset)) / 3600000);
-                    resetStatus = `Cooldown (${hoursLeft}h)`;
-                }
+            if (!userKeys.length) {
+                publicEmbed.addFields({ name: '⚠️ Thông Báo', value: 'Bạn chưa kích hoạt key nào trong hệ thống.' });
+                return interaction.editReply({ embeds: [publicEmbed] });
+            }
 
-                embed.addFields({ 
-                    name: `🔑 Key #${i + 1}`, 
-                    value: `• Tool Key: \`${r.assigned_key || 'Chưa redeem'}\`\n• Hạn: ${status}\n• Reset HWID: ${resetStatus}` 
-                });
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('select_getkey')
+                .setPlaceholder('Vui lòng chọn key bạn muốn xem...')
+                .addOptions(
+                    userKeys.slice(0, 25).map((k, idx) => ({
+                        label: `Key #${idx + 1}: ${k.assigned_key}`,
+                        description: k.hwid ? 'Đã liên kết HWID' : 'Chưa liên kết HWID',
+                        value: k.assigned_key
+                    }))
+                );
+
+            const rowComponent = new ActionRowBuilder().addComponents(selectMenu);
+
+            interaction.editReply({ 
+                embeds: [publicEmbed], 
+                components: [rowComponent] 
             });
-            interaction.editReply({ embeds: [embed] });
         }
     } catch (error) {
         console.error('❌ Lỗi xử lý lệnh:', error);
