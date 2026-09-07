@@ -394,10 +394,12 @@ client.on('interactionCreate', async interaction => {
                 ]
             });
 
+            const gifUrl = 'https://i.postimg.cc/7PVFW8Jf/9798159e1f7f791-ezgif-com-invert-colors.gif';
+
             const publicEmbed = new EmbedBuilder()
                 .setColor(getRandomColor())
                 .setTitle('🔑 Lấy Key & Trạng Thái')
-                .setDescription('Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới')
+                .setDescription(`[GIF](${gifUrl}) Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới.`)
                 .setThumbnail(THUMBNAIL_URL)
                 .setTimestamp();
 
@@ -470,9 +472,9 @@ client.on('interactionCreate', async interaction => {
                     .setTitle('🔑 Thông Tin Key Của Bạn')
                     .setThumbnail(THUMBNAIL_URL)
                     .addFields(
-                        { name: '🔑 Tool Key', value: row.assigned_key, inline: false },
+                        { name: '🔑 Your Key', value: row.assigned_key, inline: false },
                         { name: '⌛ Hạn Sử Dụng', value: expireText(row), inline: true },
-                        { name: '🖥️ Trạng Thái HWID', value: row.hwid ? '🔒 Đã liên kết' : '🔓 Chưa liên kết', inline: true },
+                        { name: '🖥️ Trạng Thái HWID', value: row.hwid ? '🔒 Đã có HWID' : '🔓 Chưa có HWID', inline: true },
                         { name: '🔄 Trạng Thái Reset HWID', value: resetStatusText, inline: false }
                     )
                     .setTimestamp();
