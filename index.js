@@ -379,7 +379,7 @@ client.on('interactionCreate', async interaction => {
             const publicEmbed = new EmbedBuilder()
                 .setColor(getRandomColor())
                 .setTitle('🔑 Lấy Key & Trạng Thái')
-                .setDescription('Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới. *(Menu có hiệu lực trong 5 phút)*')
+                .setDescription('Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới')
                 .setThumbnail(THUMBNAIL_URL)
                 .setTimestamp();
 
@@ -392,7 +392,7 @@ client.on('interactionCreate', async interaction => {
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(customSelectId)
-                .setPlaceholder('Vui lòng chọn key bạn muốn xem...')
+                .setPlaceholder('chọn key mà bạn muốn xem...')
                 .addOptions(
                     userKeys.slice(0, 25).map((k, idx) => ({
                         label: `Key #${idx + 1}: ${k.assigned_key}`,
@@ -446,7 +446,7 @@ client.on('interactionCreate', async interaction => {
 
                 const detailEmbed = new EmbedBuilder()
                     .setColor(getRandomColor())
-                    .setTitle(`🔑 Thông Tin Key: ${row.assigned_key}`)
+                    .setTitle(`🔑 Thông Tin Key của bạn:
                     .setThumbnail(THUMBNAIL_URL)
                     .addFields(
                         { name: '🔑 Tool Key', value: row.assigned_key, inline: false },
@@ -463,7 +463,7 @@ client.on('interactionCreate', async interaction => {
                 try {
                     const disabledMenu = StringSelectMenuBuilder.from(selectMenu)
                         .setDisabled(true)
-                        .setPlaceholder('Menu chọn key đã hết hạn sử dụng (5 phút)');
+                        .setPlaceholder(' ❌ Menu chọn key đã hết hiệu lực');
                     
                     const disabledRow = new ActionRowBuilder().addComponents(disabledMenu);
 
