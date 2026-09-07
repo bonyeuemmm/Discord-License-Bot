@@ -176,7 +176,8 @@ client.on('interactionCreate', async interaction => {
     const userId = interaction.user.id;
     const { commandName } = interaction;
 
-    const isPublicCommand = (commandName === 'getkey');
+    // Cho phép hiển thị công khai (Public) đối với các lệnh /getkey và /redeem
+    const isPublicCommand = (commandName === 'getkey' || commandName === 'redeem');
     await interaction.deferReply({ ephemeral: !isPublicCommand });
 
     if (userId !== OWNER_ID) {
@@ -339,7 +340,15 @@ client.on('interactionCreate', async interaction => {
                 console.error('❌ Không thể gửi DM cho Owner khi Redeem:', e);
             }
 
-            interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🎉 Kích Hoạt Thành Công').setDescription(`Kích hoạt thành công!\n• Key tool của bạn: ${assignedKey}`).setThumbnail(THUMBNAIL_URL)] });
+            interaction.editReply({ 
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(getRandomColor())
+                        .setTitle('🎉 Kích Hoạt Thành Công')
+                        .setDescription(`Kích hoạt thành công! Hãy dùng lệnh \`/getkey\` để lấy key.`)
+                        .setThumbnail(THUMBNAIL_URL)
+                ] 
+            });
         }
         else if (commandName === 'resethwid') {
             const inputKey = interaction.options.getString('key');
@@ -399,10 +408,9 @@ client.on('interactionCreate', async interaction => {
                 components: [rowComponent] 
             });
 
-            // Collector quản lý riêng cho tương tác này trong 5 phút
             const collector = responseMessage.createMessageComponentCollector({
                 componentType: ComponentType.StringSelect,
-                time: 5 * 60 * 1000 // 5 phút
+                time: 5 * 60 * 1000
             });
 
             collector.on('collect', async i => {
@@ -451,7 +459,6 @@ client.on('interactionCreate', async interaction => {
                 await i.reply({ embeds: [detailEmbed], ephemeral: true });
             });
 
-            // Khi hết hạn 5 phút, vô hiệu hóa menu chọn
             collector.on('end', async () => {
                 try {
                     const disabledMenu = StringSelectMenuBuilder.from(selectMenu)
