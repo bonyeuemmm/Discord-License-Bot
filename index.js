@@ -6,7 +6,8 @@ const {
     SlashCommandBuilder, 
     EmbedBuilder, 
     ActionRowBuilder, 
-    StringSelectMenuBuilder 
+    StringSelectMenuBuilder,
+    ComponentType
 } = require('discord.js');
 const mongoose = require('mongoose');
 const express = require('express');
@@ -150,50 +151,6 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-    if (interaction.isStringSelectMenu()) {
-        if (interaction.customId === 'select_getkey') {
-            const selectedKeyStr = interaction.values[0];
-            const userId = interaction.user.id;
-
-            const row = await Key.findOne({ assigned_key: selectedKeyStr });
-            
-            if (!row || row.user_id !== userId) {
-                return interaction.reply({ 
-                    content: '❌ Key này không còn tồn tại hoặc không thuộc quyền sở hữu của bạn!', 
-                    ephemeral: true 
-                });
-            }
-
-            const now = Date.now();
-            const cooldown = 24 * 60 * 60 * 1000;
-
-            let expireText = r => r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > now ? `<t:${Math.floor(r.expires_at / 1000)}:R>` : 'Đã hết hạn');
-            let resetStatusText = '🟢 Đã sẵn sàng để reset hwid';
-
-            if (row.last_reset && (now - row.last_reset < cooldown)) {
-                const diffMs = cooldown - (now - row.last_reset);
-                const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
-                const minsLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-                resetStatusText = `🔴 Bạn còn **${hoursLeft} giờ ${minsLeft} phút** để reset lại`;
-            }
-
-            const detailEmbed = new EmbedBuilder()
-                .setColor(getRandomColor())
-                .setTitle(`🔑 Thông Tin Key: ${row.assigned_key}`)
-                .setThumbnail(THUMBNAIL_URL)
-                .addFields(
-                    { name: '🔑 Tool Key', value: row.assigned_key, inline: false },
-                    { name: '⌛ Hạn Sử Dụng', value: expireText(row), inline: true },
-                    { name: '🖥️ Trạng Thái HWID', value: row.hwid ? '🔒 Đã liên kết' : '🔓 Chưa liên kết', inline: true },
-                    { name: '🔄 Trạng Thái Reset HWID', value: resetStatusText, inline: false }
-                )
-                .setTimestamp();
-
-            return interaction.reply({ embeds: [detailEmbed], ephemeral: true });
-        }
-        return;
-    }
-
     if (interaction.isAutocomplete()) {
         if (interaction.commandName === 'resethwid') {
             try {
@@ -413,7 +370,7 @@ client.on('interactionCreate', async interaction => {
             const publicEmbed = new EmbedBuilder()
                 .setColor(getRandomColor())
                 .setTitle('🔑 Lấy Key & Trạng Thái')
-                .setDescription('Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới.')
+                .setDescription('Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới. *(Menu có hiệu lực trong 5 phút)*')
                 .setThumbnail(THUMBNAIL_URL)
                 .setTimestamp();
 
@@ -422,8 +379,10 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply({ embeds: [publicEmbed] });
             }
 
+            const customSelectId = `select_getkey_${userId}`;
+
             const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId('select_getkey')
+                .setCustomId(customSelectId)
                 .setPlaceholder('Vui lòng chọn key bạn muốn xem...')
                 .addOptions(
                     userKeys.slice(0, 25).map((k, idx) => ({
@@ -435,9 +394,76 @@ client.on('interactionCreate', async interaction => {
 
             const rowComponent = new ActionRowBuilder().addComponents(selectMenu);
 
-            interaction.editReply({ 
+            const responseMessage = await interaction.editReply({ 
                 embeds: [publicEmbed], 
                 components: [rowComponent] 
+            });
+
+            // Collector quản lý riêng cho tương tác này trong 5 phút
+            const collector = responseMessage.createMessageComponentCollector({
+                componentType: ComponentType.StringSelect,
+                time: 5 * 60 * 1000 // 5 phút
+            });
+
+            collector.on('collect', async i => {
+                if (i.user.id !== userId) {
+                    return i.reply({
+                        content: '❌ Bạn không thể thao tác trên menu của người khác!',
+                        ephemeral: true
+                    });
+                }
+
+                const selectedKeyStr = i.values[0];
+                const row = await Key.findOne({ assigned_key: selectedKeyStr });
+                
+                if (!row || row.user_id !== userId) {
+                    return i.reply({ 
+                        content: '❌ Key này không còn tồn tại hoặc không thuộc quyền sở hữu của bạn!', 
+                        ephemeral: true 
+                    });
+                }
+
+                const now = Date.now();
+                const cooldown = 24 * 60 * 60 * 1000;
+
+                let expireText = r => r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > now ? `<t:${Math.floor(r.expires_at / 1000)}:R>` : 'Đã hết hạn');
+                let resetStatusText = '🟢 Đã sẵn sàng để reset hwid';
+
+                if (row.last_reset && (now - row.last_reset < cooldown)) {
+                    const diffMs = cooldown - (now - row.last_reset);
+                    const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
+                    const minsLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                    resetStatusText = `🔴 Bạn còn **${hoursLeft} giờ ${minsLeft} phút** để reset lại`;
+                }
+
+                const detailEmbed = new EmbedBuilder()
+                    .setColor(getRandomColor())
+                    .setTitle(`🔑 Thông Tin Key: ${row.assigned_key}`)
+                    .setThumbnail(THUMBNAIL_URL)
+                    .addFields(
+                        { name: '🔑 Tool Key', value: row.assigned_key, inline: false },
+                        { name: '⌛ Hạn Sử Dụng', value: expireText(row), inline: true },
+                        { name: '🖥️ Trạng Thái HWID', value: row.hwid ? '🔒 Đã liên kết' : '🔓 Chưa liên kết', inline: true },
+                        { name: '🔄 Trạng Thái Reset HWID', value: resetStatusText, inline: false }
+                    )
+                    .setTimestamp();
+
+                await i.reply({ embeds: [detailEmbed], ephemeral: true });
+            });
+
+            // Khi hết hạn 5 phút, vô hiệu hóa menu chọn
+            collector.on('end', async () => {
+                try {
+                    const disabledMenu = StringSelectMenuBuilder.from(selectMenu)
+                        .setDisabled(true)
+                        .setPlaceholder('Menu chọn key đã hết hạn sử dụng (5 phút)');
+                    
+                    const disabledRow = new ActionRowBuilder().addComponents(disabledMenu);
+
+                    await interaction.editReply({
+                        components: [disabledRow]
+                    });
+                } catch (e) {}
             });
         }
     } catch (error) {
