@@ -394,12 +394,10 @@ client.on('interactionCreate', async interaction => {
                 ]
             });
 
-            const gifUrl = 'https://i.postimg.cc/7PVFW8Jf/9798159e1f7f791-ezgif-com-invert-colors.gif';
-
             const publicEmbed = new EmbedBuilder()
                 .setColor(getRandomColor())
                 .setTitle('🔑 Lấy Key & Trạng Thái')
-                .setDescription(`[GIF](${gifUrl}) Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới.`)
+                .setDescription('Vui lòng chọn key bạn muốn lấy và xem thống kê chi tiết ở menu chọn bên dưới.')
                 .setThumbnail(THUMBNAIL_URL)
                 .setTimestamp();
 
