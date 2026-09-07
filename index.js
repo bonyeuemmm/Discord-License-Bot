@@ -155,7 +155,12 @@ client.on('interactionCreate', async interaction => {
         if (interaction.commandName === 'resethwid') {
             try {
                 const userId = interaction.user.id;
-                const userKeys = await Key.find({ user_id: userId, assigned_key: { $ne: null } }).limit(25);
+                const now = Date.now();
+                const userKeys = await Key.find({ 
+                    user_id: userId, 
+                    assigned_key: { $ne: null },
+                    $or: [{ expires_at: 0 }, { expires_at: { $gt: now } }]
+                }).limit(25);
                 
                 const choices = userKeys.map(k => ({
                     name: `${k.assigned_key} ${k.hwid ? '(Đã khóa HWID)' : '(Chưa có HWID)'}`,
@@ -176,7 +181,6 @@ client.on('interactionCreate', async interaction => {
     const userId = interaction.user.id;
     const { commandName } = interaction;
 
-    // Cho phép hiển thị công khai (Public) đối với các lệnh /getkey và /redeem
     const isPublicCommand = (commandName === 'getkey' || commandName === 'redeem');
     await interaction.deferReply({ ephemeral: !isPublicCommand });
 
@@ -358,6 +362,11 @@ client.on('interactionCreate', async interaction => {
             if (!row) return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Thất Bại').setDescription('Key không hợp lệ hoặc không thuộc sở hữu của bạn!').setThumbnail(THUMBNAIL_URL)] });
 
             const now = Date.now();
+            if (row.expires_at !== 0 && now > row.expires_at) {
+                await Key.deleteOne({ _id: row._id });
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('❌ Thất Bại').setDescription('Key của bạn đã hết hạn và bị xóa khỏi hệ thống!').setThumbnail(THUMBNAIL_URL)] });
+            }
+
             const cooldown = 24 * 60 * 60 * 1000;
 
             if (!tokenInput && (now - row.last_reset < cooldown)) {
@@ -374,7 +383,16 @@ client.on('interactionCreate', async interaction => {
             interaction.editReply({ embeds: [new EmbedBuilder().setColor(getRandomColor()).setTitle('🔄 Reset HWID Thành Công').setDescription(`✅ Đã reset phần cứng thành công cho key: ${inputKey}${tokenInput ? ' (Dùng Token)' : ''}`).setThumbnail(THUMBNAIL_URL)] });
         }
         else if (commandName === 'getkey') {
-            const userKeys = await Key.find({ user_id: userId, assigned_key: { $ne: null } });
+            const now = Date.now();
+
+            const userKeys = await Key.find({ 
+                user_id: userId, 
+                assigned_key: { $ne: null },
+                $or: [
+                    { expires_at: 0 },
+                    { expires_at: { $gt: now } }
+                ]
+            });
 
             const publicEmbed = new EmbedBuilder()
                 .setColor(getRandomColor())
@@ -384,7 +402,7 @@ client.on('interactionCreate', async interaction => {
                 .setTimestamp();
 
             if (!userKeys.length) {
-                publicEmbed.addFields({ name: '⚠️ Thông Báo', value: 'Bạn chưa kích hoạt key nào trong hệ thống.' });
+                publicEmbed.addFields({ name: '⚠️ Thông Báo', value: 'Bạn không có key nào còn thời hạn sử dụng trong hệ thống.' });
                 return interaction.editReply({ embeds: [publicEmbed] });
             }
 
@@ -423,22 +441,25 @@ client.on('interactionCreate', async interaction => {
 
                 const selectedKeyStr = i.values[0];
                 const row = await Key.findOne({ assigned_key: selectedKeyStr });
+                const currentNow = Date.now();
                 
-                if (!row || row.user_id !== userId) {
+                if (!row || row.user_id !== userId || (row.expires_at !== 0 && currentNow > row.expires_at)) {
+                    if (row && row.expires_at !== 0 && currentNow > row.expires_at) {
+                        await Key.deleteOne({ _id: row._id });
+                    }
                     return i.reply({ 
-                        content: '❌ Key này không còn tồn tại hoặc không thuộc quyền sở hữu của bạn!', 
+                        content: '❌ Key này đã hết hạn sử dụng hoặc không còn tồn tại trong hệ thống!', 
                         ephemeral: true 
                     });
                 }
 
-                const now = Date.now();
                 const cooldown = 24 * 60 * 60 * 1000;
 
-                let expireText = r => r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > now ? `<t:${Math.floor(r.expires_at / 1000)}:R>` : 'Đã hết hạn');
+                let expireText = r => r.expires_at === 0 ? 'Vĩnh viễn' : (r.expires_at > currentNow ? `<t:${Math.floor(r.expires_at / 1000)}:R>` : 'Đã hết hạn');
                 let resetStatusText = '🟢 Đã sẵn sàng để reset hwid';
 
-                if (row.last_reset && (now - row.last_reset < cooldown)) {
-                    const diffMs = cooldown - (now - row.last_reset);
+                if (row.last_reset && (currentNow - row.last_reset < cooldown)) {
+                    const diffMs = cooldown - (currentNow - row.last_reset);
                     const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
                     const minsLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
                     resetStatusText = `🔴 Bạn còn **${hoursLeft} giờ ${minsLeft} phút** để reset lại`;
@@ -446,7 +467,7 @@ client.on('interactionCreate', async interaction => {
 
                 const detailEmbed = new EmbedBuilder()
                     .setColor(getRandomColor())
-                    .setTitle(`🔑 Thông Tin Key của bạn:
+                    .setTitle('🔑 Thông Tin Key Của Bạn')
                     .setThumbnail(THUMBNAIL_URL)
                     .addFields(
                         { name: '🔑 Tool Key', value: row.assigned_key, inline: false },
