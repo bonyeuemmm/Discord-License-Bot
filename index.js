@@ -394,6 +394,16 @@ client.on('interactionCreate', async interaction => {
                 ]
             });
 
+            if (!userKeys.length) {
+                const noKeyEmbed = new EmbedBuilder()
+                    .setColor(0xFF0000)
+                    .setTitle('⚠️ Không Tìm Thấy Key')
+                    .setDescription('Bạn chưa sở hữu hoặc không có key nào còn thời hạn sử dụng trong hệ thống.')
+                    .setThumbnail(THUMBNAIL_URL)
+                    .setTimestamp();
+                return interaction.editReply({ embeds: [noKeyEmbed] });
+            }
+
             const publicEmbed = new EmbedBuilder()
                 .setColor(getRandomColor())
                 .setTitle('🔑 Lấy Key & Trạng Thái')
@@ -401,16 +411,11 @@ client.on('interactionCreate', async interaction => {
                 .setThumbnail(THUMBNAIL_URL)
                 .setTimestamp();
 
-            if (!userKeys.length) {
-                publicEmbed.addFields({ name: '⚠️ Thông Báo', value: 'Bạn không có key nào còn thời hạn sử dụng trong hệ thống.' });
-                return interaction.editReply({ embeds: [publicEmbed] });
-            }
-
             const customSelectId = `select_getkey_${userId}`;
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(customSelectId)
-                .setPlaceholder('chọn key mà bạn muốn xem...')
+                .setPlaceholder('vui lòng chọn key)
                 .addOptions(
                     userKeys.slice(0, 25).map((k, idx) => ({
                         label: `Key #${idx + 1}: ${k.assigned_key}`,
