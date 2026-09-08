@@ -398,7 +398,7 @@ client.on('interactionCreate', async interaction => {
                 const noKeyEmbed = new EmbedBuilder()
                     .setColor(0xFF0000)
                     .setTitle('⚠️ Không Tìm Thấy Key')
-                    .setDescription('Bạn chưa sở hữu hoặc không có key nào còn thời hạn sử dụng trong hệ thống.')
+                    .setDescription('❌Bạn chưa sở hữu key nào.')
                     .setThumbnail(THUMBNAIL_URL)
                     .setTimestamp();
                 return interaction.editReply({ embeds: [noKeyEmbed] });
@@ -415,7 +415,7 @@ client.on('interactionCreate', async interaction => {
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(customSelectId)
-                .setPlaceholder('vui lòng chọn key)
+                .setPlaceholder('vui lòng chọn key...')
                 .addOptions(
                     userKeys.slice(0, 25).map((k, idx) => ({
                         label: `Key #${idx + 1}: ${k.assigned_key}`,
