@@ -48,21 +48,42 @@ const TIME_LABELS = {
     'default': { today: 'Today at', yesterday: 'Yesterday at' }
 };
 
-// 1. Footer: Logic phân loại Hôm nay / Hôm qua / dd/mm / dd/mm/yyyy chuẩn theo Locale
 const getFooterOptions = (userLocale = 'vi', targetTimestamp = Date.now()) => {
     const localeStr = LOCALE_MAP[userLocale] || LOCALE_MAP[userLocale.split('-')[0]] || 'en-US';
     const labels = TIME_LABELS[localeStr] || TIME_LABELS['default'];
 
+    const TIMEZONE_MAP = {
+        'vi-VN': 'Asia/Ho_Chi_Minh',
+        'en-US': 'America/New_York',
+        'en-GB': 'Europe/London',
+        'ja-JP': 'Asia/Tokyo',
+        'ko-KR': 'Asia/Seoul',
+        'zh-CN': 'Asia/Shanghai',
+        'zh-TW': 'Asia/Taipei',
+        'th-TH': 'Asia/Bangkok',
+        'ru-RU': 'Europe/Moscow',
+        'fr-FR': 'Europe/Paris',
+        'de-DE': 'Europe/Berlin'
+    };
+
+    const timeZone = TIMEZONE_MAP[localeStr] || 'Asia/Ho_Chi_Minh';
+
     const now = new Date();
     const targetDate = new Date(targetTimestamp);
 
-    const nowParts = new Intl.DateTimeFormat(localeStr, {
+    const formatterDate = new Intl.DateTimeFormat(localeStr, {
+        timeZone,
         year: 'numeric', month: 'numeric', day: 'numeric'
-    }).formatToParts(now);
+    });
 
-    const targetParts = new Intl.DateTimeFormat(localeStr, {
-        year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
-    }).formatToParts(targetDate);
+    const formatterTime = new Intl.DateTimeFormat(localeStr, {
+        timeZone,
+        hour: '2-digit', minute: '2-digit', hour12: false
+    });
+
+    const nowParts = formatterDate.formatToParts(now);
+    const targetParts = formatterDate.formatToParts(targetDate);
+    const targetTimeParts = formatterTime.formatToParts(targetDate);
 
     const getPart = (parts, type) => parts.find(p => p.type === type)?.value;
 
@@ -73,8 +94,9 @@ const getFooterOptions = (userLocale = 'vi', targetTimestamp = Date.now()) => {
     const targetYear = parseInt(getPart(targetParts, 'year'));
     const targetMonth = parseInt(getPart(targetParts, 'month'));
     const targetDay = parseInt(getPart(targetParts, 'day'));
-    const targetHour = getPart(targetParts, 'hour');
-    const targetMinute = getPart(targetParts, 'minute');
+    
+    const targetHour = getPart(targetTimeParts, 'hour');
+    const targetMinute = getPart(targetTimeParts, 'minute');
 
     const nowDateOnly = Date.UTC(currentYear, currentMonth - 1, currentDay);
     const targetDateOnly = Date.UTC(targetYear, targetMonth - 1, targetDay);
@@ -88,9 +110,9 @@ const getFooterOptions = (userLocale = 'vi', targetTimestamp = Date.now()) => {
     } else if (diffDays === -1) {
         timeFormat = `${labels.yesterday} ${targetHour}:${targetMinute}`;
     } else if (targetYear !== currentYear) {
-        timeFormat = new Intl.DateTimeFormat(localeStr, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(targetDate);
+        timeFormat = new Intl.DateTimeFormat(localeStr, { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(targetDate);
     } else {
-        timeFormat = new Intl.DateTimeFormat(localeStr, { month: '2-digit', day: '2-digit' }).format(targetDate);
+        timeFormat = new Intl.DateTimeFormat(localeStr, { timeZone, month: '2-digit', day: '2-digit' }).format(targetDate);
     }
 
     return {
@@ -211,7 +233,6 @@ async function checkExpiredKeys() {
             await Key.deleteOne({ _id: row._id });
         }
 
-        // Quét key còn hạn
         const activeKeys = await Key.find({ 
             expires_at: { $gt: now }, 
             user_id: { $ne: null } 
