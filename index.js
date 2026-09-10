@@ -26,13 +26,26 @@ const FOOTER_ICON_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
 
 const getRandomColor = () => Math.floor(Math.random() * 16777215);
 
-// Hàm tạo Footer hiển thị "Bot By PAIN | lúc HH:mm" và Icon avatar của bạn
+// 1. Sửa Footer: Ép múi giờ Asia/Ho_Chi_Minh & Định dạng: "Bot By PAIN | ngày DD/MM/YYYY lúc HH:mm"
 const getFooterOptions = () => {
     const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
+    
+    const dateStr = now.toLocaleDateString('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+
+    const timeStr = now.toLocaleTimeString('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+
     return {
-        text: `Bot By PAIN | lúc ${hours}:${minutes}`,
+        text: `Bot By PAIN | ngày ${dateStr} lúc ${timeStr}`,
         iconURL: FOOTER_ICON_URL
     };
 };
@@ -128,11 +141,12 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
+// 2. Tối ưu lại logic quét và gửi DM thông báo 24h & 4h
 async function checkExpiredKeys() {
     try {
         const now = Date.now();
         
-        // 1. Quét và xóa các key đã hết hạn
+        // Quét và xóa các key hết hạn
         const expiredKeys = await Key.find({ expires_at: { $ne: 0, $lt: now } });
         for (const row of expiredKeys) {
             if (row.user_id) {
@@ -141,7 +155,7 @@ async function checkExpiredKeys() {
                     const embed = new EmbedBuilder()
                         .setColor(0xFF0000)
                         .setTitle('⌛ Thông Báo Hết Hạn Key')
-                        .setDescription('Key bản quyền của bạn đã chính thức **hết hạn** và bị xóa khỏi hệ thống của bot. Vui lòng nhập key mới để tiếp tục sử dụng dịch vụ.')
+                        .setDescription('Key bản quyền của bạn đã chính thức **hết hạn** và bị xóa khỏi hệ thống. Vui lòng mua key mới để tiếp tục sử dụng!')
                         .setThumbnail(user.displayAvatarURL({ dynamic: true }))
                         .setFooter(getFooterOptions());
                     await user.send({ embeds: [embed] });
@@ -150,7 +164,7 @@ async function checkExpiredKeys() {
             await Key.deleteOne({ _id: row._id });
         }
 
-        // 2. Quét các key sắp hết hạn để gửi thông báo
+        // Quét key còn hạn
         const activeKeys = await Key.find({ 
             expires_at: { $gt: now }, 
             user_id: { $ne: null } 
@@ -160,14 +174,14 @@ async function checkExpiredKeys() {
             const timeLeftMs = row.expires_at - now;
             const hoursLeft = timeLeftMs / (1000 * 60 * 60);
 
-            // Thông báo còn 24h (dành cho key 7 ngày trở lên)
-            if (row.duration_days >= 7 && hoursLeft <= 24 && !row.notified_24h) {
+            // Cảnh báo 24h
+            if (hoursLeft <= 24 && hoursLeft > 4 && !row.notified_24h) {
                 try {
                     const user = await client.users.fetch(row.user_id);
                     const embed = new EmbedBuilder()
                         .setColor(0xFFA500)
                         .setTitle('⚠️ Cảnh Báo Hết Hạn Key (24h)')
-                        .setDescription(`Thông báo key của bạn sắp hết hạn thời gian còn lại là 24 giờ!`)
+                        .setDescription(`Key bản quyền của bạn sắp hết hạn! Thời gian còn lại là khoảng **24 giờ**!`)
                         .setThumbnail(user.displayAvatarURL({ dynamic: true }))
                         .setFooter(getFooterOptions());
                     await user.send({ embeds: [embed] });
@@ -176,14 +190,14 @@ async function checkExpiredKeys() {
                 } catch (e) {}
             }
 
-            // Thông báo còn 4h (dành cho key 1 ngày trở lên)
-            if (row.duration_days >= 1 && hoursLeft <= 4 && !row.notified_4h) {
+            // Cảnh báo 4h
+            if (hoursLeft <= 4 && !row.notified_4h) {
                 try {
                     const user = await client.users.fetch(row.user_id);
                     const embed = new EmbedBuilder()
                         .setColor(0xFF4500)
                         .setTitle('⚠️ Cảnh Báo Hết Hạn Key (4h)')
-                        .setDescription(`20 giờ đã trôi qua key của bạn còn 4 giờ vui lòng nhập một key mới để tiếp tục sử dụng dịch vụ!`)
+                        .setDescription(`Key của bạn chỉ còn lại **4 giờ** sử dụng! Vui lòng chuẩn bị key mới để tránh gián đoạn dịch vụ.`)
                         .setThumbnail(user.displayAvatarURL({ dynamic: true }))
                         .setFooter(getFooterOptions());
                     await user.send({ embeds: [embed] });
@@ -202,7 +216,9 @@ client.once('clientReady', async () => {
         await rest.put(Routes.applicationCommands(CLIENT_ID || client.user.id), { body: commands });
         console.log(`✅ Đăng ký Slash Commands thành công! Bot Discord đã sẵn sàng: ${client.user.tag}`);
         
-        setInterval(checkExpiredKeys, 5 * 60 * 1000);
+        // Chạy kiểm tra mỗi 1 phút một lần
+        checkExpiredKeys();
+        setInterval(checkExpiredKeys, 60 * 1000);
     } catch (error) {
         console.error('❌ Lỗi đăng ký Slash Commands:', error);
     }
@@ -390,9 +406,19 @@ client.on('interactionCreate', async interaction => {
             }
 
             const assignedKey = `pain_key_${Math.floor(100000 + Math.random() * 900000)}`;
+            
+            // Tính lại thời hạn kể từ giây phút bấm /redeem
+            let newExpiresAt = row.expires_at;
+            if (row.duration_days > 0) {
+                newExpiresAt = Date.now() + (row.duration_days * 24 * 60 * 60 * 1000);
+            }
+
             row.assigned_key = assignedKey;
             row.user_id = userId;
             row.is_used = 1;
+            row.expires_at = newExpiresAt;
+            row.notified_24h = false;
+            row.notified_4h = false;
             await row.save();
 
             try {
