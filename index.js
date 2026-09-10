@@ -26,7 +26,7 @@ const FOOTER_ICON_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
 
 const getRandomColor = () => Math.floor(Math.random() * 16777215);
 
-// 1. Sửa Footer: Ép múi giờ Asia/Ho_Chi_Minh & Định dạng: "Bot By PAIN | ngày DD/MM/YYYY lúc HH:mm"
+// 1. Footer: Ép múi giờ Asia/Ho_Chi_Minh & Định dạng: "Bot By PAIN | ngày DD/MM/YYYY lúc HH:mm"
 const getFooterOptions = () => {
     const now = new Date();
     
@@ -141,7 +141,7 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-// 2. Tối ưu lại logic quét và gửi DM thông báo 24h & 4h
+// 2. Logic quét và gửi DM thông báo 24h & 4h
 async function checkExpiredKeys() {
     try {
         const now = Date.now();
@@ -174,8 +174,9 @@ async function checkExpiredKeys() {
             const timeLeftMs = row.expires_at - now;
             const hoursLeft = timeLeftMs / (1000 * 60 * 60);
 
-            // Cảnh báo 24h
-            if (hoursLeft <= 24 && hoursLeft > 4 && !row.notified_24h) {
+            // Cảnh báo 24h: Chỉ áp dụng cho key 3 ngày -> 30 ngày (bỏ qua key 1 ngày)
+            const isEligibleFor24h = row.duration_days >= 3 && row.duration_days <= 30;
+            if (isEligibleFor24h && hoursLeft <= 24 && hoursLeft > 4 && !row.notified_24h) {
                 try {
                     const user = await client.users.fetch(row.user_id);
                     const embed = new EmbedBuilder()
@@ -190,7 +191,7 @@ async function checkExpiredKeys() {
                 } catch (e) {}
             }
 
-            // Cảnh báo 4h
+            // Cảnh báo 4h: Áp dụng cho tất cả các loại key
             if (hoursLeft <= 4 && !row.notified_4h) {
                 try {
                     const user = await client.users.fetch(row.user_id);
