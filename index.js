@@ -22,7 +22,7 @@ if (!TOKEN || typeof TOKEN !== 'string' || TOKEN.trim() === '') {
 const CLIENT_ID = process.env.CLIENT_ID;
 const MONGODB_URI = process.env.MONGODB_URI;
 const OWNER_ID = '1208450889246048306';
-const FOOTER_ICON_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
+const FOOTER_ICON_URL = '[https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png](https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png)';
 
 const COLORS = {
     SUCCESS: 0x2ECC71,
@@ -297,7 +297,7 @@ client.on('interactionCreate', async interaction => {
                     const ownerEmbed = new EmbedBuilder()
                         .setColor(COLORS.GOLD)
                         .setTitle('📢 Thông Báo Admin Tạo Key Mới')
-                        .setDescription(`• **Admin thực hiện:** <@${userId}>\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n• **Key:** ${keyStr}\n• **Gửi tới:** ${targetUser ? targetUser.tag : 'Không chọn'}`)
+                        .setDescription(`• **Admin thực hiện:** <@${userId}>\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n• **Key:**\n\`\`\`\n${keyStr}\n\`\`\`\n• **Gửi tới:** ${targetUser ? targetUser.tag : 'Không chọn'}`)
                         .setThumbnail(userAvatar)
                         .setFooter(getFooterOptions());
                     const owner = await client.users.fetch(OWNER_ID);
@@ -311,19 +311,19 @@ client.on('interactionCreate', async interaction => {
                     const dmEmbed = new EmbedBuilder()
                         .setColor(COLORS.GOLD)
                         .setTitle('🎉 Nhận Key Bản Quyền')
-                        .setDescription(`Bạn vừa nhận được một key kích hoạt từ quản trị viên.\n\n${keyStr}\n\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n\nHãy dùng lệnh \`/redeem key:${keyStr}\` trong server để kích hoạt!`)
+                        .setDescription(`Bạn vừa nhận được một key kích hoạt từ quản trị viên.\n\n\`\`\`\n${keyStr}\n\`\`\`\n• **Thời hạn:** ${duration === 0 ? 'Vĩnh viễn' : duration + ' ngày'}\n\nHãy dùng lệnh \`/redeem key:${keyStr}\` trong server để kích hoạt!`)
                         .setThumbnail(targetAvatar)
                         .setFooter(getFooterOptions());
                     await targetUser.send({ embeds: [dmEmbed] });
 
-                    const replyEmbed = new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🎟️ Đã Tạo Key Thành Công').setDescription(`✅ Đã tạo và gửi key trực tiếp qua DM cho **${targetUser.tag}**.\n\n${keyStr}`).setThumbnail(userAvatar).setFooter(getFooterOptions());
+                    const replyEmbed = new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🎟️ Đã Tạo Key Thành Công').setDescription(`✅ Đã tạo và gửi key trực tiếp qua DM cho **${targetUser.tag}**.\n\n\`\`\`\n${keyStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions());
                     interaction.editReply({ embeds: [replyEmbed] });
                 } catch (e) {
-                    const replyEmbed = new EmbedBuilder().setColor(COLORS.WARNING).setTitle('🎟️ Đã Tạo Key').setDescription(`⚠️ Không thể gửi DM cho **${targetUser.tag}**.\n\n${keyStr}`).setThumbnail(userAvatar).setFooter(getFooterOptions());
+                    const replyEmbed = new EmbedBuilder().setColor(COLORS.WARNING).setTitle('🎟️ Đã Tạo Key').setDescription(`⚠️ Không thể gửi DM cho **${targetUser.tag}**.\n\n\`\`\`\n${keyStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions());
                     interaction.editReply({ embeds: [replyEmbed] });
                 }
             } else {
-                const replyEmbed = new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🎟️ Đã Tạo Key Thành Công').setDescription(`✅ Khởi tạo key thành công:\n\n${keyStr}`).setThumbnail(userAvatar).setFooter(getFooterOptions());
+                const replyEmbed = new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🎟️ Đã Tạo Key Thành Công').setDescription(`✅ Khởi tạo key thành công:\n\n\`\`\`\n${keyStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions());
                 interaction.editReply({ embeds: [replyEmbed] });
             }
         }
@@ -340,7 +340,7 @@ client.on('interactionCreate', async interaction => {
                     const ownerEmbed = new EmbedBuilder()
                         .setColor(COLORS.INFO)
                         .setTitle('📢 Thông Báo Admin Tạo Token Reset HWID')
-                        .setDescription(`• **Admin thực hiện:** <@${userId}>\n• **Token:** ${tokenStr}\n• **Gửi tới:** ${targetUser ? targetUser.tag : 'Không chọn'}`)
+                        .setDescription(`• **Admin thực hiện:** <@${userId}>\n• **Token:**\n\`\`\`\n${tokenStr}\n\`\`\`\n• **Gửi tới:** ${targetUser ? targetUser.tag : 'Không chọn'}`)
                         .setThumbnail(userAvatar)
                         .setFooter(getFooterOptions());
                     const owner = await client.users.fetch(OWNER_ID);
@@ -354,17 +354,17 @@ client.on('interactionCreate', async interaction => {
                     const dmEmbed = new EmbedBuilder()
                         .setColor(COLORS.INFO)
                         .setTitle('🔑 Token Reset HWID Của Bạn')
-                        .setDescription(`${tokenStr}`)
+                        .setDescription(`\`\`\`\n${tokenStr}\n\`\`\``)
                         .setThumbnail(targetAvatar)
                         .setFooter(getFooterOptions());
                     await targetUser.send({ embeds: [dmEmbed] });
                     
-                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('✅ Thành Công').setDescription(`Đã gửi token reset HWID tới **${targetUser.tag}** qua DM.\n\n${tokenStr}`).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('✅ Thành Công').setDescription(`Đã gửi token reset HWID tới **${targetUser.tag}** qua DM.\n\n\`\`\`\n${tokenStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
                 } catch (e) {
-                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.WARNING).setTitle('⚠️ Cảnh Báo').setDescription(`Không thể gửi DM cho user này.\n\n${tokenStr}`).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+                    interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.WARNING).setTitle('⚠️ Cảnh Báo').setDescription(`Không thể gửi DM cho user này.\n\n\`\`\`\n${tokenStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
                 }
             } else {
-                interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('🔑 Token Reset HWID').setDescription(`${tokenStr}`).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+                interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('🔑 Token Reset HWID').setDescription(`\`\`\`\n${tokenStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
             }
         }
         else if (commandName === 'removekey') {
@@ -375,9 +375,9 @@ client.on('interactionCreate', async interaction => {
             const row = await Key.findOneAndDelete({ assigned_key: toolKey });
             
             if (!row) {
-                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('❌ Lỗi').setDescription(`Không tìm thấy key tool với mã: ${toolKey}`).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('❌ Lỗi').setDescription(`Không tìm thấy key tool với mã:\n\`\`\`\n${toolKey}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
             }
-            interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('🗑️ Đã Xóa Key').setDescription(`✅ Đã xóa vĩnh viễn key tool:\n\n${toolKey}`).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+            interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('🗑️ Đã Xóa Key').setDescription(`✅ Đã xóa vĩnh viễn key tool:\n\n\`\`\`\n${toolKey}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
         }
         else if (commandName === 'redeem') {
             const inputKey = interaction.options.getString('key');
@@ -409,7 +409,7 @@ client.on('interactionCreate', async interaction => {
                 const ownerEmbed = new EmbedBuilder()
                     .setColor(COLORS.SUCCESS)
                     .setTitle('🔔 Thông Báo Member Kích Hoạt Key')
-                    .setDescription(`• **Thành viên:** <@${userId}> (\`${interaction.user.tag}\`)\n• **Key gốc:** ${inputKey}\n• **Tool Key được cấp:** ${assignedKey}`)
+                    .setDescription(`• **Thành viên:** <@${userId}> (\`${interaction.user.tag}\`)\n• **Key gốc:** \`${inputKey}\`\n• **Tool Key được cấp:**\n\`\`\`\n${assignedKey}\n\`\`\``)
                     .setThumbnail(userAvatar)
                     .setFooter(getFooterOptions());
                 const owner = await client.users.fetch(OWNER_ID);
@@ -455,7 +455,7 @@ client.on('interactionCreate', async interaction => {
             }
             await row.save();
 
-            interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('🔄 Reset HWID Thành Công').setDescription(`✅ Đã reset phần cứng thành công cho key:\n\n${inputKey}${tokenInput ? ' (Dùng Token)' : ''}`).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+            interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('🔄 Reset HWID Thành Công').setDescription(`✅ Đã reset phần cứng thành công cho key:\n\n\`\`\`\n${inputKey}\n\`\`\`${tokenInput ? ' (Dùng Token)' : ''}`).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
         }
         else if (commandName === 'getkey') {
             const now = Date.now();
@@ -550,7 +550,7 @@ client.on('interactionCreate', async interaction => {
                     .setTitle('🔑 Thông Tin Key Của Bạn')
                     .setThumbnail(i.user.displayAvatarURL({ dynamic: true }))
                     .addFields(
-                        { name: '🔑 Your Key', value: `${row.assigned_key}`, inline: false },
+                        { name: '🔑 Your Key', value: `\`\`\`\n${row.assigned_key}\n\`\`\``, inline: false },
                         { name: '⌛ Hạn Sử Dụng', value: expireText(row), inline: true },
                         { name: '🖥️ Trạng Thái HWID', value: row.hwid ? '🔒 Đã có HWID' : '🔓 Chưa có HWID', inline: true },
                         { name: '🔄 Trạng Thái Reset HWID', value: resetStatusText, inline: false }
