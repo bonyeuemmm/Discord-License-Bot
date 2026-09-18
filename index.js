@@ -11,6 +11,7 @@ const {
 } = require('discord.js');
 const mongoose = require('mongoose');
 const express = require('express');
+const crypto = require('crypto');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 
@@ -22,7 +23,8 @@ if (!TOKEN || typeof TOKEN !== 'string' || TOKEN.trim() === '') {
 const CLIENT_ID = process.env.CLIENT_ID;
 const MONGODB_URI = process.env.MONGODB_URI;
 const OWNER_ID = '1208450889246048306';
-const FOOTER_ICON_URL = '[https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png](https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png)';
+const FOOTER_ICON_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
+const SECRET_KEY = "PainGamerSecretKey2026#VipTool";
 
 const COLORS = {
     SUCCESS: 0x2ECC71,
@@ -82,8 +84,27 @@ app.get('/', (req, res) => {
 });
 
 app.post(['/', '/api/verify'], async (req, res) => {
-    const { key, hwid } = req.body;
+    const { key, hwid, timestamp, signature } = req.body;
     try {
+        if (!key || !hwid || !timestamp || !signature) {
+            return res.json({ valid: false, reason: "missing_data" });
+        }
+
+        const currentTime = Math.floor(Date.now() / 1000);
+        if (Math.abs(currentTime - timestamp) > 30) {
+            return res.json({ valid: false, reason: "request_expired" });
+        }
+
+        const rawData = `${key}:${hwid}:${timestamp}`;
+        const expectedSignature = crypto
+            .createHmac('sha256', SECRET_KEY)
+            .update(rawData)
+            .digest('hex');
+
+        if (signature !== expectedSignature) {
+            return res.json({ valid: false, reason: "invalid_signature" });
+        }
+
         const row = await Key.findOne({ assigned_key: key });
         if (!row) return res.json({ valid: false, reason: "key_not_found" });
         if (row.expires_at !== 0 && Date.now() > row.expires_at) return res.json({ valid: false, reason: "expired" });
@@ -234,7 +255,7 @@ client.on('interactionCreate', async interaction => {
                 }).limit(25);
                 
                 const choices = userKeys.map(k => ({
-                    name: `${k.assigned_key} ${k.hwid ? '(Đã khóa HWID)' : '(Chưa có HWID)'}`,
+                    name: `${k.assigned_key}${k.hwid ? '(Đã khóa HWID)' : '(Chưa có HWID)'}`,
                     value: k.assigned_key
                 }));
 
@@ -499,7 +520,7 @@ client.on('interactionCreate', async interaction => {
                 .setPlaceholder('vui lòng chọn key...')
                 .addOptions(
                     userKeys.slice(0, 25).map((k, idx) => ({
-                        label: `Key #${idx + 1}: ${k.assigned_key}`,
+                        label: `Key #${idx + 1}:${k.assigned_key}`,
                         description: k.hwid ? 'Đã liên kết HWID' : 'Chưa liên kết HWID',
                         value: k.assigned_key
                     }))
