@@ -23,7 +23,8 @@ if (!TOKEN || typeof TOKEN !== 'string' || TOKEN.trim() === '') {
 const CLIENT_ID = process.env.CLIENT_ID;
 const MONGODB_URI = process.env.MONGODB_URI;
 const OWNER_ID = '1208450889246048306';
-const FOOTER_ICON_URL = '[https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png](https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png)';
+
+const FOOTER_ICON_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
 const SECRET_KEY = "PainGamerSecretKey2026#VipTool";
 
 const COLORS = {
