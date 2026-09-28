@@ -319,9 +319,10 @@ client.on('interactionCreate', async interaction => {
             }
         } 
         else if (commandName === 'createkey') {
-            const isAdmin = await Admin.findOne({ user_id: userId });
-if (!isAdmin && userId !== OWNER_ID) { ... }
-
+            const isAdmin = await Admin.exists({ user_id: userId });
+            if (!isAdmin && userId !== OWNER_ID) {
+                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('❌ Từ Chối Truy Cập').setDescription('Bạn không có quyền sử dụng lệnh này!').setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+            }
 
             const duration = parseInt(interaction.options.getString('duration'));
             const targetUser = interaction.options.getUser('user');
@@ -363,7 +364,7 @@ if (!isAdmin && userId !== OWNER_ID) { ... }
             }
         }
         else if (commandName === 'gettoken') {
-            const isAdmin = await Admin.findOne({ user_id: userId });
+            const isAdmin = await Admin.exists({ user_id: userId });
             if (!isAdmin && userId !== OWNER_ID) {
                 return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('❌ Từ Chối').setDescription('Bạn không có quyền thực hiện lệnh này!').setThumbnail(userAvatar).setFooter(getFooterOptions())] });
             }
