@@ -21,7 +21,7 @@ if (!TOKEN || typeof TOKEN !== 'string' || TOKEN.trim() === '') {
 }
 
 const CLIENT_ID = process.env.CLIENT_ID;
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
 const OWNER_ID = '1208450889246048306';
 
 const FOOTER_ICON_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
@@ -320,9 +320,8 @@ client.on('interactionCreate', async interaction => {
         } 
         else if (commandName === 'createkey') {
             const isAdmin = await Admin.findOne({ user_id: userId });
-            if (!isAdmin && userId !== OWNER_ID) {
-                return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('❌ Từ Chối Truy Cập').setDescription('Bạn không có quyền sử dụng lệnh này!').setThumbnail(userAvatar).setFooter(getFooterOptions())] });
-            }
+if (!isAdmin && userId !== OWNER_ID) { ... }
+
 
             const duration = parseInt(interaction.options.getString('duration'));
             const targetUser = interaction.options.getUser('user');
