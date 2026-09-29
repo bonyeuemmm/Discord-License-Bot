@@ -21,6 +21,7 @@ if (!TOKEN || typeof TOKEN !== 'string' || TOKEN.trim() === '') {
 }
 
 const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID; // Thêm Guild ID để cập nhật lệnh NAY LẬP TỨC
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
 const OWNER_ID = '1208450889246048306';
 
@@ -231,10 +232,20 @@ async function checkExpiredKeys() {
     }
 }
 
-client.once('clientReady', async () => {
+client.once('ready', async () => {
     try {
-        await rest.put(Routes.applicationCommands(CLIENT_ID || client.user.id), { body: commands });
-        console.log(`✅ Đăng ký Slash Commands thành công! Bot Discord đã sẵn sàng: ${client.user.tag}`);
+        const appId = CLIENT_ID || client.user.id;
+        
+        // Cập nhật nhanh bằng Guild ID nếu được khai báo
+        if (GUILD_ID) {
+            await rest.put(Routes.applicationGuildCommands(appId, GUILD_ID), { body: commands });
+            console.log(`⚡ Đã đăng ký Slash Commands TỨC THÌ cho Server GUILD_ID: ${GUILD_ID}`);
+        } else {
+            await rest.put(Routes.applicationCommands(appId), { body: commands });
+            console.log(`🌐 Đã đăng ký Slash Commands Toàn Cầu (Global) thành công!`);
+        }
+        
+        console.log(`✅ Bot Discord đã sẵn sàng hoạt động: ${client.user.tag}`);
         
         checkExpiredKeys();
         setInterval(checkExpiredKeys, 60 * 1000);
@@ -256,14 +267,14 @@ client.on('interactionCreate', async interaction => {
                 }).limit(25);
                 
                 const choices = userKeys.map(k => ({
-                    name: `${k.assigned_key}${k.hwid ? '(Đã khóa HWID)' : '(Chưa có HWID)'}`,
+                    name: `${k.assigned_key}${k.hwid ? ' (Đã khóa HWID)' : ' (Chưa có HWID)'}`,
                     value: k.assigned_key
                 }));
 
                 await interaction.respond(choices);
             } catch (err) {
                 console.error('❌ Lỗi Autocomplete resethwid:', err);
-                await interaction.respond([]);
+                await interaction.respond([]).catch(() => {});
             }
         }
         return;
@@ -276,10 +287,14 @@ client.on('interactionCreate', async interaction => {
     const { commandName } = interaction;
 
     const isPublicCommand = (commandName === 'getkey' || commandName === 'redeem');
+    
+    // An toàn hoá deferReply để tránh hết thời gian chờ làm hỏng tương tác
     try {
-        await interaction.deferReply({ ephemeral: !isPublicCommand });
+        if (!interaction.deferred && !interaction.replied) {
+            await interaction.deferReply({ ephemeral: !isPublicCommand });
+        }
     } catch (e) {
-        console.error('❌ Lỗi deferReply:', e);
+        console.error('❌ Lỗi khi deferReply:', e.message);
         return;
     }
 
@@ -518,7 +533,7 @@ client.on('interactionCreate', async interaction => {
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(customSelectId)
-                .setPlaceholder('vui lòng chọn key...')
+                .setPlaceholder('Vui lòng chọn key...')
                 .addOptions(
                     userKeys.slice(0, 25).map((k, idx) => ({
                         label: `Key #${idx + 1}:${k.assigned_key}`,
