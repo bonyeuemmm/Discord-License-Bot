@@ -12,6 +12,8 @@ const {
 const mongoose = require('mongoose');
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 
@@ -85,6 +87,7 @@ app.get('/', (req, res) => {
     res.status(200).send('Bot is active and running successfully!');
 });
 
+// ROUTE XÁC THỰC VÀ PHÁT CODE PREMIUM TRỰC TIẾP
 app.post(['/', '/api/verify'], async (req, res) => {
     const { key, hwid, timestamp, signature } = req.body;
     try {
@@ -111,18 +114,32 @@ app.post(['/', '/api/verify'], async (req, res) => {
         if (!row) return res.json({ valid: false, reason: "key_not_found" });
         if (row.expires_at !== 0 && Date.now() > row.expires_at) return res.json({ valid: false, reason: "expired" });
         
+        // Tự động gán HWID nếu key mới chưa gắn thiết bị
         if (!row.hwid) {
             row.hwid = hwid;
             await row.save();
-            return res.json({ valid: true, message: "hwid_bound_successfully" });
-        }
-        
-        if (row.hwid !== hwid) {
+        } else if (row.hwid !== hwid) {
             return res.json({ valid: false, reason: "hwid_mismatch" });
         }
 
-        res.json({ valid: true });
+        // Kiểm tra và đọc file code Premium
+        const premiumFilePath = path.join(__dirname, 'paintool_premium.py');
+        if (!fs.existsSync(premiumFilePath)) {
+            return res.json({ valid: false, reason: "source_code_not_found" });
+        }
+
+        // Mã hóa mã nguồn sang dạng Base64
+        const rawCode = fs.readFileSync(premiumFilePath, 'utf8');
+        const encodedCode = Buffer.from(rawCode).toString('base64');
+
+        // Trả kết quả hợp lệ KÈM CODE cho Loader chạy trên RAM
+        return res.json({ 
+            valid: true, 
+            code: encodedCode 
+        });
+
     } catch (e) { 
+        console.error("❌ Lỗi API Verify:", e);
         res.json({ valid: false, reason: "server_error" }); 
     }
 });
@@ -217,7 +234,7 @@ async function checkExpiredKeys() {
                     const user = await client.users.fetch(row.user_id);
                     const embed = new EmbedBuilder()
                         .setColor(COLORS.WARNING)
-                        .setTitle('⚠️ Cảnh Báo Hết Hạn Key (4h)')
+                        .setTitle('⚠️️ Cảnh Báo Hết Hạn Key (4h)')
                         .setDescription(`Key bản quyền của bạn sắp hết hạn!\n\n\`\`\`\n${row.assigned_key || row.key}\n\`\`\`\n• Thời gian còn lại: chỉ còn 4 giờ! Vui lòng chuẩn bị key mới để tránh gián đoạn.`)
                         .setThumbnail(user.displayAvatarURL({ dynamic: true }))
                         .setFooter(getFooterOptions());
@@ -236,7 +253,6 @@ client.once('ready', async () => {
     try {
         const appId = CLIENT_ID || client.user.id;
         
-        // Cập nhật nhanh bằng Guild ID nếu được khai báo
         if (GUILD_ID) {
             await rest.put(Routes.applicationGuildCommands(appId, GUILD_ID), { body: commands });
             console.log(`⚡ Đã đăng ký Slash Commands TỨC THÌ cho Server GUILD_ID: ${GUILD_ID}`);
@@ -288,7 +304,6 @@ client.on('interactionCreate', async interaction => {
 
     const isPublicCommand = (commandName === 'getkey' || commandName === 'redeem');
     
-    // An toàn hoá deferReply để tránh hết thời gian chờ làm hỏng tương tác
     try {
         if (!interaction.deferred && !interaction.replied) {
             await interaction.deferReply({ ephemeral: !isPublicCommand });
@@ -370,7 +385,7 @@ client.on('interactionCreate', async interaction => {
                     const replyEmbed = new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🎟️ Đã Tạo Key Thành Công').setDescription(`✅ Đã tạo và gửi key trực tiếp qua DM cho **${targetUser.tag}**.\n\n\`\`\`\n${keyStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions());
                     await interaction.editReply({ embeds: [replyEmbed] });
                 } catch (e) {
-                    const replyEmbed = new EmbedBuilder().setColor(COLORS.WARNING).setTitle('🎟️ Đã Tạo Key').setDescription(`⚠️ Không thể gửi DM cho **${targetUser.tag}**.\n\n\`\`\`\n${keyStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions());
+                    const replyEmbed = new EmbedBuilder().setColor(COLORS.WARNING).setTitle('🎟️ Đã Tạo Key').setDescription(`⚠️️ Không thể gửi DM cho **${targetUser.tag}**.\n\n\`\`\`\n${keyStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions());
                     await interaction.editReply({ embeds: [replyEmbed] });
                 }
             } else {
@@ -425,7 +440,7 @@ client.on('interactionCreate', async interaction => {
             if (!row) {
                 return interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('❌ Lỗi').setDescription(`Không tìm thấy key tool với mã:\n\n\`\`\`\n${toolKey}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
             }
-            await interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('🗑️ Đã Xóa Key').setDescription(`✅ Đã xóa vĩnh viễn key tool:\n\n\`\`\`\n${toolKey}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+            await interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.ERROR).setTitle('🗑️️ Đã Xóa Key').setDescription(`✅ Đã xóa vĩnh viễn key tool:\n\n\`\`\`\n${toolKey}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
         }
         else if (commandName === 'redeem') {
             const inputKey = interaction.options.getString('key');
