@@ -126,16 +126,13 @@ class EmbedFactory {
             resetStatusText = `🔴 ${hoursLeft}h ${minsLeft}m còn lại`;
         }
 
-        const keyCodeBlock = `\`\`\`\n${keyData.assigned_key}\n\`\`\``;
-        const hwidCodeBlock = keyData.hwid ? `\`\`\`\n${keyData.hwid}\n\`\`\`` : 'N/A';
-
         return new EmbedBuilder()
             .setColor(COLORS.DARK_BLUE)
             .setTitle('🔑 Chi Tiết Key')
             .setThumbnail(userAvatar)
             .addFields(
-                { name: '🔐 Mã Key', value: keyCodeBlock, inline: false },
-                { name: '🖥️ HWID', value: hwidCodeBlock, inline: false },
+                { name: '🔐 Mã Key', value: keyData.assigned_key, inline: false },
+                { name: '🖥️ HWID', value: keyData.hwid || 'N/A', inline: false },
                 { name: '⌛ Hạn Sử Dụng', value: expireText, inline: true },
                 { name: '📊 Trạng Thái', value: hwidStatus, inline: true },
                 { name: '🔄 Reset HWID', value: resetStatusText, inline: false }
@@ -145,8 +142,6 @@ class EmbedFactory {
     }
 
     static createOwnerNotification(userId, userTag, inputKey, assignedKey, userAvatar) {
-        const keyCodeBlock = `\`\`\`\n${assignedKey}\n\`\`\``;
-        
         return new EmbedBuilder()
             .setColor(COLORS.EMERALD)
             .setTitle('🔔 Member Kích Hoạt Key')
@@ -154,14 +149,13 @@ class EmbedFactory {
             .addFields(
                 { name: '👤 Thành Viên', value: `<@${userId}> (\`${userTag}\`)`, inline: false },
                 { name: '📋 Key Gốc', value: inputKey, inline: false },
-                { name: '🎯 Tool Key Được Cấp', value: keyCodeBlock, inline: false }
+                { name: '🎯 Tool Key Được Cấp', value: assignedKey, inline: false }
             )
             .setFooter(getFooterOptions())
             .setTimestamp();
     }
 
     static createNewKeyNotification(key, duration, userAvatar) {
-        const keyCodeBlock = `\`\`\`\n${key}\n\`\`\``;
         const durationText = duration === '0' ? 'Vĩnh viễn' : `${duration} ngày`;
         
         return new EmbedBuilder()
@@ -170,7 +164,7 @@ class EmbedFactory {
             .setDescription(`Bạn đã nhận được key mới. Sao chép key dưới đây để sử dụng:`)
             .setThumbnail(userAvatar)
             .addFields(
-                { name: '🔐 Key', value: keyCodeBlock, inline: false },
+                { name: '🔐 Key', value: key, inline: false },
                 { name: '⏱️ Thời Hạn', value: durationText, inline: true }
             )
             .setFooter(getFooterOptions())
@@ -178,15 +172,13 @@ class EmbedFactory {
     }
 
     static createResetTokenNotification(token, userAvatar) {
-        const tokenCodeBlock = `\`\`\`\n${token}\n\`\`\``;
-        
         return new EmbedBuilder()
             .setColor(COLORS.LIGHT_BLUE)
             .setTitle('🔑 Token Reset HWID')
             .setDescription(`Token này cho phép bạn reset HWID mà không cần chờ cooldown.`)
             .setThumbnail(userAvatar)
             .addFields(
-                { name: '🎫 Token', value: tokenCodeBlock, inline: false },
+                { name: '🎫 Token', value: token, inline: false },
                 { name: '⚠️ Lưu Ý', value: 'Token này chỉ sử dụng được 1 lần', inline: false }
             )
             .setFooter(getFooterOptions())
@@ -194,15 +186,13 @@ class EmbedFactory {
     }
 
     static createKeyExpiredNotification(assignedKey, durationText, userAvatar) {
-        const keyCodeBlock = `\`\`\`\n${assignedKey}\n\`\`\``;
-        
         return new EmbedBuilder()
             .setColor(COLORS.WARNING)
             .setTitle('⏰ Key Đã Hết Hạn')
             .setDescription(`Key của bạn đã hết hạn và bị xóa khỏi hệ thống.`)
             .setThumbnail(userAvatar)
             .addFields(
-                { name: '🔐 Mã Key', value: keyCodeBlock, inline: false },
+                { name: '🔐 Mã Key', value: assignedKey, inline: false },
                 { name: '⏱️ Thời Hạn Đã Dùng', value: durationText, inline: true }
             )
             .setFooter(getFooterOptions())
@@ -413,23 +403,18 @@ async function generateUniqueAssignedKey() {
     let newKey = crypto.randomBytes(16).toString('hex').toUpperCase();
     newKey = `pain_key_${newKey.substring(0, 20)}`;
     
-    let exists = await Key.findOne({ assigned_key: newKey });
-    while (exists) {
+    let existingKey = await Key.findOne({ assigned_key: newKey });
+    while (existingKey) {
         newKey = crypto.randomBytes(16).toString('hex').toUpperCase();
         newKey = `pain_key_${newKey.substring(0, 20)}`;
-        exists = await Key.findOne({ assigned_key: newKey });
+        existingKey = await Key.findOne({ assigned_key: newKey });
     }
     
     return newKey;
 }
 
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌐 API Server running on port ${PORT}`);
-});
-
 const client = new Client({ 
-    intents: [
+    intents: [ 
         GatewayIntentBits.Guilds, 
         GatewayIntentBits.GuildMessages, 
         GatewayIntentBits.MessageContent,
@@ -598,12 +583,18 @@ client.on('interactionCreate', async interaction => {
             row.notified_4h = false;
             await row.save();
 
+            // Respond immediately in channel
+            await interaction.editReply({ 
+                embeds: [EmbedFactory.createSuccess('Kích Hoạt Thành Công', `✅ Key: ${assignedKey}`, userAvatar)] 
+            });
+
+            // Send notification to owner
             const ownerEmbed = EmbedFactory.createOwnerNotification(userId, interaction.user.tag, inputKey, assignedKey, userAvatar);
             await notifyOwner(client, ownerEmbed);
 
-            await interaction.editReply({ 
-                embeds: [EmbedFactory.createSuccess('Kích Hoạt Thành Công', 'Hãy dùng lệnh /getkey để lấy key.', userAvatar)] 
-            });
+            // Send key to member via DM
+            const memberEmbed = EmbedFactory.createNewKeyNotification(assignedKey, row.duration_days.toString(), userAvatar);
+            await notifyUserDM(client, userId, memberEmbed);
         }
 
         else if (commandName === 'resethwid') {
@@ -819,16 +810,18 @@ client.on('interactionCreate', async interaction => {
 
             const dmEmbed = EmbedFactory.createResetTokenNotification(resetToken, userAvatar);
 
+            // Respond immediately in channel
+            await interaction.editReply({ 
+                embeds: [EmbedFactory.createSuccess('Token Được Tạo', `✅ Token: ${resetToken}`, userAvatar)] 
+            });
+
+            // Send token to member via DM
             try {
                 const dmUser = await client.users.fetch(targetUserId);
                 await dmUser.send({ embeds: [dmEmbed] });
             } catch (e) {
                 console.error('Failed to send token DM:', e.message);
             }
-
-            await interaction.editReply({ 
-                embeds: [EmbedFactory.createSuccess('Token Được Tạo', `✅ Token đã được gửi qua DM.`, userAvatar)] 
-            });
         }
 
     } catch (error) {
