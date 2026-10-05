@@ -28,7 +28,7 @@ const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
 const OWNER_ID = '1208450889246048306';
 
 const FOOTER_ICON_URL = 'https://i.postimg.cc/gJbhCmHL/Pain-Gamer.png';
-const SECRET_KEY = "9gt8AU2jITFNRJdLMFoejFdXyXE4Rk-IufaF3AUi344";
+const SECRET_KEY = "PainGamerSecretKey2156#VipTool";
 
 const COLORS = {
     SUCCESS: 0x2ECC71,
