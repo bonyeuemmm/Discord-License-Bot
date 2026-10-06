@@ -129,7 +129,7 @@ app.post(['/', '/api/verify'], async (req, res) => {
             return res.json({ valid: false, reason: "hwid_mismatch" });
         }
 
-        const premiumFilePath = path.join(__dirname, 'paintool_premium.py');
+        const premiumFilePath = path.join(__dirname, 'paintoolpremium.py');
         if (!fs.existsSync(premiumFilePath)) {
             return res.json({ valid: false, reason: "source_code_not_found" });
         }
@@ -280,8 +280,21 @@ async function checkExpiredKeys() {
 client.once('ready', async () => {
     try {
         const appId = CLIENT_ID || client.user.id;
+        
+        // 🛠️ BƯỚC XÓA SẠCH GUILD COMMANDS CŨ TRÁNH TRÙNG LẶP LỆNH
+        const guilds = client.guilds.cache.map(g => g.id);
+        for (const guildId of guilds) {
+            try {
+                await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: [] });
+                console.log(`🧹 Đã dọn dẹp Guild Commands cũ trên server: ${guildId}`);
+            } catch (err) {
+                console.warn(`⚠️ Không thể dọn Guild Commands trên server ${guildId}:`, err.message);
+            }
+        }
+
+        // 🌐 ĐĂNG KÝ DUY NHẤT GLOBAL COMMANDS
         await rest.put(Routes.applicationCommands(appId), { body: commands });
-        console.log(`🌐 Đã đăng ký Slash Commands Toàn Cầu (Global) thành công!`);
+        console.log(`🌐 Đã đăng ký thành công Slash Commands Toàn Cầu (Global)!`);
         
         console.log(`✅ Bot Discord đã sẵn sàng hoạt động: ${client.user.tag}`);
         
@@ -473,7 +486,7 @@ client.on('interactionCreate', async interaction => {
                     
                     await interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('✅ TẠO TOKEN THÀNH CÔNG').setDescription(`Đã gửi token reset HWID tới **${targetUser.tag}** qua DM.\n\n\`\`\`\n${tokenStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
                 } catch (e) {
-                    await interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.WARNING).setTitle('⚠️️ TẠO TOKEN THÀNH CÔNG').setDescription(`Không thể gửi DM cho người dùng này.\n\n\`\`\`\n${tokenStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
+                    await interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.WARNING).setTitle('⚠ TẠO TOKEN THÀNH CÔNG').setDescription(`Không thể gửi DM cho người dùng này.\n\n\`\`\`\n${tokenStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
                 }
             } else {
                 await interaction.editReply({ embeds: [new EmbedBuilder().setColor(COLORS.INFO).setTitle('🔑 TOKEN RESET HWID MỚI').setDescription(`Dưới đây là mã token reset HWID được khởi tạo:\n\n\`\`\`\n${tokenStr}\n\`\`\``).setThumbnail(userAvatar).setFooter(getFooterOptions())] });
@@ -520,7 +533,7 @@ client.on('interactionCreate', async interaction => {
                 .setTitle('🔔 BOT LOG: BẰNG CHỨNG KÍCH HOẠT KEY')
                 .addFields(
                     { name: '👤 Thành Viên Kích Hoạt', value: `<@${userId}> \`(${interaction.user.tag})\``, inline: true },
-                    { name: '⏱️ Thời Hạn Gói', value: row.duration_days === 0 ? '`Vĩnh viễn`' : `\`${row.duration_days} Ngày\``, inline: true },
+                    { name: '⏱️️ Thời Hạn Gói', value: row.duration_days === 0 ? '`Vĩnh viễn`' : `\`${row.duration_days} Ngày\``, inline: true },
                     { name: '🎟️ Key Gốc Kích Hoạt', value: `\`\`\`\n${inputKey}\n\`\`\``, inline: false },
                     { name: '🔑 Tool Key Cấp Mới', value: `\`\`\`\n${assignedKey}\n\`\`\``, inline: false }
                 )
