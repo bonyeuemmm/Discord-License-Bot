@@ -169,7 +169,9 @@ const Token = mongoose.model('Token', tokenSchema);
 
 const keySchema = new mongoose.Schema({
     key: String,
-    assigned_key: { type: String, default: null, unique: true, sparse: true },
+    // Không dùng unique+sparse: sparse vẫn index giá trị null nên key thứ 2 chưa kích hoạt sẽ lỗi E11000.
+    // Tính duy nhất được đảm bảo bằng partial index trong ensureKeyIndexes().
+    assigned_key: { type: String, default: null },
     hwid: { type: String, default: null },
     expires_at: { type: Number, default: 0 },
     duration_days: { type: Number, default: 0 },
@@ -183,12 +185,50 @@ const Key = mongoose.model('Key', keySchema);
 
 const isDbReady = () => mongoose.connection.readyState === 1;
 
+// Xóa index cũ (unique+sparse) trên assigned_key nếu còn tồn tại trong DB,
+// rồi tạo partial index: chỉ ràng buộc duy nhất với các key đã được cấp (kiểu string).
+async function ensureKeyIndexes() {
+    try {
+        const indexes = await Key.collection.indexes();
+        for (const idx of indexes) {
+            const isAssignedKeyIndex = idx.key
+                && Object.keys(idx.key).length === 1
+                && idx.key.assigned_key === 1;
+
+            if (isAssignedKeyIndex && !idx.partialFilterExpression) {
+                await Key.collection.dropIndex(idx.name);
+                console.log(`🔧 Đã xóa index cũ gây lỗi trùng key null: ${idx.name}`);
+            }
+        }
+    } catch (e) {
+        // code 26: collection chưa tồn tại -> bỏ qua
+        if (e.code !== 26) console.error('❌ Lỗi khi kiểm tra index cũ của Key:', e);
+    }
+
+    try {
+        await Key.collection.createIndex(
+            { assigned_key: 1 },
+            {
+                name: 'assigned_key_1',
+                unique: true,
+                partialFilterExpression: { assigned_key: { $type: 'string' } }
+            }
+        );
+        console.log('✅ Key indexes ready.');
+    } catch (e) {
+        console.error('❌ Lỗi khi tạo index cho Key:', e);
+    }
+}
+
 if (!MONGODB_URI) {
     console.error('❌ Thiếu MONGODB_URI / MONGO_URI trong biến môi trường.');
 } else {
     console.log('🔄 Connecting to MongoDB Atlas...');
     mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 15000 })
-        .then(() => console.log('✅ MongoDB connected successfully!'))
+        .then(async () => {
+            console.log('✅ MongoDB connected successfully!');
+            await ensureKeyIndexes();
+        })
         .catch(err => console.error('❌ MongoDB error:', err));
 }
 
@@ -842,6 +882,19 @@ const commandHandlers = {
 /* ============================================================
  *  INTERACTION CREATE
  * ============================================================ */
+// Luôn cố gắng phản hồi người dùng: editReply nếu đã defer/reply, ngược lại dùng reply.
+async function safeRespond(interaction, payload) {
+    try {
+        if (interaction.deferred || interaction.replied) {
+            return await interaction.editReply(payload);
+        }
+        return await interaction.reply({ ...payload, ephemeral: true });
+    } catch (e) {
+        console.error('❌ Không thể phản hồi interaction:', e);
+        return null;
+    }
+}
+
 async function handleCommand(interaction) {
     const userId = interaction.user.id;
 
@@ -888,10 +941,19 @@ async function handleCommand(interaction) {
 
         await handler(interaction, ctx);
     } catch (error) {
-        console.error(`❌ Command error (/${interaction.commandName}):`, error);
-        await interaction.editReply({
-            embeds: [EmbedFactory.createError('Lỗi Hệ Thống', '❌ Lỗi xử lý yêu cầu!', ctx.userAvatar)]
-        }).catch(() => {});
+        const errorId = crypto.randomBytes(3).toString('hex').toUpperCase();
+        console.error(`❌ [${errorId}] Chi tiết lỗi lệnh /${interaction.commandName}:`, error);
+
+        // Mã lỗi hiển thị cho mọi người để đối chiếu với log; nội dung lỗi chỉ hiển thị cho Owner.
+        let description = `❌ Lỗi xử lý yêu cầu!\nMã lỗi: \`${errorId}\``;
+        if (userId === OWNER_ID) {
+            const detail = String((error && (error.stack || error.message)) || error).substring(0, 700);
+            description += `\n${codeBlock(detail)}`;
+        }
+
+        await safeRespond(interaction, {
+            embeds: [EmbedFactory.createError('Lỗi Hệ Thống', description, ctx.userAvatar)]
+        });
         return;
     }
 
@@ -914,7 +976,7 @@ client.on(Events.InteractionCreate, async interaction => {
             await handleCommand(interaction);
         }
     } catch (error) {
-        console.error('❌ interactionCreate error:', error);
+        console.error('Chi tiết lỗi lệnh:', error);
     }
 });
 
