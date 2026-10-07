@@ -1698,54 +1698,74 @@ def notify_bot_hwid_linked(key_str, hwid_str, discord_id=""):
         return False
 
 def authenticate():
+    """✓ XÁC THỰC BẢN QUYỀN - Logic rõ ràng:
+    1. Nếu file .pain_license tồn tại & xác thực thành công -> return ngay (thoát hàm)
+    2. Nếu xác thực thất bại -> xóa file, hiển thị lỗi, chuyển sang nhập key thủ công
+    3. Chỉ vào while True nếu không có file hoặc file không hợp lệ
+    """
     profile = get_device_profile()
     hwid = profile["hwid"]
     problem = device_integrity_problem(profile)
     if problem:
         fatal_exit(problem)
-    note = None
+    
+    # ==================== BƯỚC 1: TRY LOAD KEY TỪ FILE ====================
     if os.path.exists(LICENSE_FILE):
-        saved = ""
+        saved_key = ""
         try:
             with open(LICENSE_FILE, "r") as f:
-                saved = f.read().strip()
+                saved_key = f.read().strip()
         except Exception:
-            pass
-        if saved:
+            saved_key = ""
+        
+        if saved_key:  # File tồn tại & không rỗng -> thử xác thực
             clear_screen()
             print_ascii_banner()
             print()
-            # ← chữ ký mới: chỉ truyền key, không truyền hwid nữa
-            is_valid, resp = with_spinner("Đang kiểm tra key đã lưu", check_license_curl, saved)
+            is_valid, resp = with_spinner("Đang kiểm tra key đã lưu", check_license_curl, saved_key)
+            
             if is_valid:
-                device_activated(profile, saved)
+                # ✓ Xác thực thành công -> Kích hoạt & RETURN NGAY
+                device_activated(profile, saved_key)
                 extra = f" Hạn dùng đến: {LAST_LICENSE_EXPIRES}" if LAST_LICENSE_EXPIRES else ""
                 msg_ok(f"Tự động xác thực bản quyền thành công!{extra}")
-                notify_bot_hwid_linked(saved, hwid)
+                notify_bot_hwid_linked(saved_key, hwid)
                 time.sleep(1)
-                return
+                return  # ← THOÁT HÀM AUTHENTICATE() NGAY ĐỂ TRÁNH LOOP
+            
+            # ✗ Xác thực thất bại -> Xóa file & hiển thị lỗi
             if LAST_LICENSE_REASON == "hwid_mismatch":
+                # HWID mismatch: key đã gắn với máy khác -> fatal error
                 fatal_exit(resp)
-            if LAST_LICENSE_REASON in _TRANSIENT_REASONS:
-                note = f"{C.YEL}[!] {resp}. Kiểm tra mạng rồi nhập lại key.{C.R}"
-            else:
+            
+            # Xóa file key lỗi ngoài trừ lỗi mạng tạm thời
+            if LAST_LICENSE_REASON not in _TRANSIENT_REASONS:
                 try:
                     os.remove(LICENSE_FILE)
                 except Exception:
                     pass
-                note = f"{C.RED}[!] Key đã lưu không còn hợp lệ: {resp}. Vui lòng nhập key mới.{C.R}"
-
+                msg_err(f"Key không hợp lệ: {resp}")
+            else:
+                msg_warn(f"Lỗi tạm thời: {resp}. Vui lòng kiểm tra mạng!")
+            time.sleep(1.5)
+    
+    # ==================== BƯỚC 2: NHẬP KEY THỦ CÔNG (NẾU KHÔNG CÓ FILE HOẶC LỖI) ====================
+    note = None
     while True:
         license_screen(hwid, note)
         note = None
         input_key = ask("Nhập Key:").strip()
+        
         if input_key.lower() in ("exit", "0"):
             exit_tool()
+        
         if not input_key:
             continue
-        # ← chữ ký mới: chỉ truyền key, không truyền hwid nữa
+        
         is_valid, response_text = with_spinner("Đang kết nối máy chủ", check_license_curl, input_key)
+        
         if is_valid:
+            # ✓ Xác thực key thành công -> Lưu & kích hoạt
             try:
                 with open(LICENSE_FILE, "w") as f:
                     f.write(input_key)
@@ -1756,9 +1776,12 @@ def authenticate():
             msg_ok(f"Xác thực Key thành công!{extra}")
             notify_bot_hwid_linked(input_key, hwid)
             time.sleep(1)
-            break
+            return  # ← THOÁT NGAY KHÔNG LỰC VÒNG WHILE
+        
+        # ✗ Xác thực thất bại -> Hiển thị lỗi & chờ nhập lại
         if LAST_LICENSE_REASON == "hwid_mismatch":
             fatal_exit(response_text)
+        
         if LAST_LICENSE_REASON in _TRANSIENT_REASONS:
             note = f"{C.YEL}[!] {response_text}. Kiểm tra mạng rồi thử lại.{C.R}"
         else:
@@ -5306,7 +5329,11 @@ def invalid_choice(text):
     msg_err(f"Lựa chọn '{text or '(trống)'}' không hợp lệ, vui lòng chọn lại.")
     time.sleep(1.2)
 
-def find_packages_by_name():
+def search_packages_by_keyword():
+    """
+    Tìm package khớp từ khóa - kết quả hiện ra lập tức
+    Flow: nhập từ khóa → hiển thị package khớp → xong
+    """
     clear_screen()
     section_title("TÌM PACKAGE NAME")
 
@@ -5316,7 +5343,15 @@ def find_packages_by_name():
         wait_enter()
         return
 
-    search_term = input(f"Nhập từ khóa để tìm package (vd: clone1, client2): ").strip().lower()
+    print(f"{C.GRY}Danh sách tất cả package ({len(packages)}):{C.R}\n")
+    for i, pkg in enumerate(packages, 1):
+        short = pkg[len(PACKAGE_PREFIX):].lstrip(".") if pkg.startswith(PACKAGE_PREFIX) else pkg
+        alias = ALIASES.get(pkg, "")
+        alias_str = f" ({alias})" if alias else ""
+        print(f"  {C.WHT}{i:2}. {short}{alias_str}{C.R}")
+
+    print(f"\n{C.WHT}Nhập từ khóa để lọc (vd: clone, game, 2):{C.R} ", end="", flush=True)
+    search_term = input().strip().lower()
 
     if not search_term:
         msg_cancel("Hủy tìm kiếm.")
@@ -5325,105 +5360,116 @@ def find_packages_by_name():
 
     matched = [p for p in packages if search_term in p.lower()]
 
+    clear_screen()
+    section_title(f"KẾT QUẢ TÌM KIẾM: '{search_term}'")
+
     if not matched:
         msg_warn(f"Không tìm thấy package nào chứa '{search_term}'")
         wait_enter()
         return
 
-    print(f"\n{C.GRN}Tìm thấy {len(matched)} package khớp:{C.R}\n")
-
+    print(f"\n{C.GRN}✓ Tìm thấy {len(matched)}/{len(packages)} package khớp:{C.R}\n")
     for i, pkg in enumerate(matched, 1):
         short = pkg[len(PACKAGE_PREFIX):].lstrip(".") if pkg.startswith(PACKAGE_PREFIX) else pkg
         alias = ALIASES.get(pkg, "")
         alias_str = f" ({alias})" if alias else ""
-        print(f"  {C.WHT}{i:2}. {short}{alias_str}{C.R}")
-        print(f"      → {C.GRY}{pkg}{C.R}")
-
-    print(f"\n {C.GRY}[0 để thoát]{C.R}")
-    choice = input(f"{C.WHT}Chọn package (1-{len(matched)}) để sao chép tên:{C.R} ").strip()
-
-    if choice == "0":
-        msg_cancel("Thoát")
-        wait_enter()
-        return
-
-    if choice.isdigit() and 1 <= int(choice) <= len(matched):
-        selected_pkg = matched[int(choice) - 1]
-        try:
-            os.system(f"echo -n '{selected_pkg}' | xclip -selection clipboard 2>/dev/null || echo -n '{selected_pkg}' | wl-copy 2>/dev/null")
-            msg_done(f"Đã sao chép: {C.WHT}{selected_pkg}{C.R}")
-        except Exception:
-            print(f" {C.WHT}Package name: {selected_pkg}{C.R}")
-            msg_info("(Không thể copy tự động, kiểm tra xclip/wl-copy)")
-    else:
-        msg_err("Lựa chọn không hợp lệ.")
+        print(f"  {C.WHT}{i}. {short}{alias_str}{C.R}")
+        print(f"     {C.GRY}→ {pkg}{C.R}")
 
     wait_enter()
 
-def set_game_for_package():
-    global PACKAGE_GAMES
+def menu_choose_game_with_package():
+    """
+    Consolidated menu [2]: Select game, then bind to package(s)
+    Flow: game selection -> package selection -> save binding
+    """
+    global TARGET_LINK, SELECTED_GAME_NAME, PACKAGE_GAMES
 
     clear_screen()
-    section_title("SET GAME CHO PACKAGE")
+    section_title("CHỌN GAME & LIÊN KẾT PACKAGE")
 
-    packages = sorted(list_installed_packages())
-    if not packages:
-        msg_warn("Chưa tìm thấy package nào.")
-        wait_enter()
-        return
+    # Step 1: Game selection
+    print(f"\n{C.WHT}📌 Bước 1: Chọn game{C.R}\n")
+    for k, (name, _gid) in GAMES.items():
+        print(f"\033[1;37m{k}. {name}\033[0m")
+    print("\033[1;37m12. Custom ID / Private Link\033[0m")
 
-    print(f"\n{C.WHT}Danh sách game có sẵn:{C.R}")
-    for k, (name, gid) in GAMES.items():
-        print(f"  {C.WHT}{k:2}. {name}{C.R}")
-    print(f"  {C.WHT}99. Custom ID / Private Link{C.R}")
+    game_choice = input(f"\n{C.WHT}Chọn game [1-12]:{C.R} ").strip()
 
-    game_choice = input(f"\n{C.WHT}Chọn game [1-11, 99]:{C.R} ").strip()
-
-    if game_choice not in GAMES and game_choice != "99":
-        msg_err("Lựa chọn không hợp lệ.")
-        wait_enter()
-        return
-
+    # Parse game selection
     game_name = None
     game_id = None
 
-    if game_choice == "99":
-        game_id = input("Nhập Game ID hoặc Private Link URL: ").strip()
-        game_name = f"Custom ({game_id[:20]}...)"
-    else:
+    if game_choice in GAMES:
         game_name, game_id = GAMES[game_choice]
+        msg_done(f"Đã chọn game: {game_name}")
+        print(f" {C.GRY}ID: {game_id}{C.R}")
+    elif game_choice == "12":
+        game_id = input(f"\n{C.WHT}Nhập ID game hoặc Link Server VIP:{C.R} ").strip()
+        if game_id:
+            game_name = f"Game ID: {game_id}" if game_id.isdigit() else "Server VIP Custom"
+            msg_done(f"Đã nhận: {game_name}")
+        else:
+            msg_cancel("Chưa nhập ID/link, hủy.")
+            wait_enter()
+            return
+    else:
+        msg_cancel("Lựa chọn không hợp lệ, hủy.")
+        wait_enter()
+        return
 
-    print(f"\n{C.WHT}Danh sách package:{C.R}")
+    # Save global selection
+    SELECTED_GAME_NAME = game_name
+    TARGET_LINK = game_id
+
+    # Step 2: Package binding
+    print(f"\n{C.WHT}📌 Bước 2: Liên kết với package{C.R}\n")
+
+    packages = sorted(list_installed_packages())
+    if not packages:
+        msg_warn("Chưa tìm thấy package nào. Hãy kiểm tra lại Package Prefix ở mục [3].")
+        save_config_file()
+        wait_enter()
+        return
+
+    print(f"{C.WHT}Danh sách package:{C.R}")
     for i, pkg in enumerate(packages, 1):
         short = pkg[len(PACKAGE_PREFIX):].lstrip(".") if pkg.startswith(PACKAGE_PREFIX) else pkg
         alias = ALIASES.get(pkg, "")
         alias_str = f" ({alias})" if alias else ""
         print(f"  {C.WHT}{i:2}. {short}{alias_str}{C.R}")
 
-    print(f"\n{C.GRY}Nhập số package hoặc 'all' để áp dụng cho tất cả:{C.R}")
+    print(f"\n{C.GRY}Nhập số package hoặc 'all' để liên kết với game này:{C.R}")
     pkg_choice = input(f"{C.WHT}Chọn:{C.R} ").strip()
 
+    # Save package binding
     if pkg_choice.lower() == "all":
         for pkg in packages:
             PACKAGE_GAMES[pkg] = {
                 "game_name": game_name,
                 "game_id": game_id,
             }
-        msg_done(f"Đã set game '{game_name}' cho tất cả {len(packages)} package.")
+        msg_done(f"✓ Đã liên kết '{game_name}' với tất cả {len(packages)} package")
     elif pkg_choice.isdigit() and 1 <= int(pkg_choice) <= len(packages):
         pkg = packages[int(pkg_choice) - 1]
         PACKAGE_GAMES[pkg] = {
             "game_name": game_name,
             "game_id": game_id,
         }
-        msg_done(f"Đã set game '{game_name}' cho {tab_label(pkg)}")
+        short = pkg[len(PACKAGE_PREFIX):].lstrip(".") if pkg.startswith(PACKAGE_PREFIX) else pkg
+        msg_done(f"✓ Đã liên kết '{game_name}' với {C.WHT}{short}{C.R}")
     else:
         msg_err("Lựa chọn không hợp lệ.")
         wait_enter()
         return
 
     save_config_file()
+    print(f"\n{C.GRN}✓ Cấu hình đã lưu thành công{C.R}")
     wait_enter()
+
+def set_game_for_package():
+    """Legacy function - kept for backward compatibility, now calls consolidated flow"""
+    menu_choose_game_with_package()
 
 def menu_choose_game():
     global TARGET_LINK, SELECTED_GAME_NAME
@@ -5665,35 +5711,29 @@ def menu_setup():
         section_title("SET UP")
         print("\033[1;37m1. Set up auto rejoin\033[0m")
         print("\033[1;37m2. Chọn game\033[0m")
-        print("\033[1;37m2b. Set game cho từng package\033[0m")
-        print("\033[1;37m2c. Tìm package name\033[0m")
         print(f"\033[1;37m3. Auto Clear Data / Khôi phục tab kẹt [{'Bật' if AUTO_CLEAR_DATA else 'Tắt'}]\033[0m")
         print(f"\033[1;37m4. Auto Backup data tab [{'Bật' if AUTO_BACKUP else 'Tắt'}]\033[0m")
         print(f"\033[1;37m5. Cảnh báo RAM thấp [{'Bật' if LOW_RAM_ALERT else 'Tắt'}]\033[0m")
         print(f"\033[1;37m6. Profile cấu hình [{len(PROFILES)} profile]\033[0m")
-        print(f"\033[1;37m7. Hẹn giờ tự chạy / tự dừng [{'Bật' if (SCHEDULE.get('start') or SCHEDULE.get('stop')) else 'Tắt'}]\033[0m")
-        print(f"\033[1;37m8. Graphics Optimizer (đồ họa thấp + giới hạn FPS) [{gfx_settings_label()}]\033[0m")
-        print(f"\033[1;37m9. Biệt danh tab (Alias) [{len(ALIASES)} tab]\033[0m")
-        print(f"\033[1;37m10. Kiểm tra mạng trước khi rejoin [{'Bật' if NET_CHECK else 'Tắt'}]\033[0m")
-        print(f"\033[1;37m11. Lịch tự động restart [{auto_restart_label()}]\033[0m")
-        print(f"\033[1;37m12. Client Key Injector [{key_label()}]\033[0m")
-        print(f"\033[1;37m13. Phát hiện màn hình trắng/đen & GUI đứng [{screen_guard_label()}]\033[0m")
-        print(f"\033[1;37m14. Chế độ màn hình đen (Black Screen) [{black_screen_label()}]\033[0m")
-        print(f"\033[1;37m15. Auto Server Hop (đổi server khi lag) [{hop_label()}]\033[0m")
+        print("\033[1;37m7. Tìm package name (khớp từ khóa)\033[0m")
+        print(f"\033[1;37m8. Hẹn giờ tự chạy / tự dừng [{'Bật' if (SCHEDULE.get('start') or SCHEDULE.get('stop')) else 'Tắt'}]\033[0m")
+        print(f"\033[1;37m9. Graphics Optimizer (đồ họa thấp + giới hạn FPS) [{gfx_settings_label()}]\033[0m")
+        print(f"\033[1;37m10. Biệt danh tab (Alias) [{len(ALIASES)} tab]\033[0m")
+        print(f"\033[1;37m11. Kiểm tra mạng trước khi rejoin [{'Bật' if NET_CHECK else 'Tắt'}]\033[0m")
+        print(f"\033[1;37m12. Lịch tự động restart [{auto_restart_label()}]\033[0m")
+        print(f"\033[1;37m13. Client Key Injector [{key_label()}]\033[0m")
+        print(f"\033[1;37m14. Phát hiện màn hình trắng/đen & GUI đứng [{screen_guard_label()}]\033[0m")
+        print(f"\033[1;37m15. Chế độ màn hình đen (Black Screen) [{black_screen_label()}]\033[0m")
+        print(f"\033[1;37m16. Auto Server Hop (đổi server khi lag) [{hop_label()}]\033[0m")
+        print("\033[1;37m17. Groq AI Setup\033[0m")
         print("\033[1;32m0. Quay lại menu chính\033[0m")
         sub = input("Chọn: ").strip()
         if sub == "1":
             announce_choice("1", "Set up auto rejoin")
             setup_auto_rejoin()
         elif sub == "2":
-            announce_choice("2", "Chọn game")
-            menu_choose_game()
-        elif sub == "2b":
-            announce_choice("2b", "Set game cho package")
-            set_game_for_package()
-        elif sub == "2c":
-            announce_choice("2c", "Tìm package name")
-            find_packages_by_name()
+            announce_choice("2", "Chọn game & Liên kết package")
+            menu_choose_game_with_package()
         elif sub == "3":
             announce_choice("3", "Auto Clear Data")
             setup_auto_clear()
@@ -5707,32 +5747,38 @@ def menu_setup():
             announce_choice("6", "Profile cấu hình")
             menu_profile()
         elif sub == "7":
-            announce_choice("7", "Hẹn giờ tự chạy / tự dừng")
-            menu_schedule()
+            announce_choice("7", "Tìm package name")
+            search_packages_by_keyword()
         elif sub == "8":
-            announce_choice("8", "Graphics Optimizer")
-            menu_low_graphics()
+            announce_choice("8", "Hẹn giờ tự chạy / tự dừng")
+            menu_schedule()
         elif sub == "9":
-            announce_choice("9", "Biệt danh tab")
-            menu_alias()
+            announce_choice("9", "Graphics Optimizer")
+            menu_low_graphics()
         elif sub == "10":
-            announce_choice("10", "Kiểm tra mạng trước khi rejoin")
-            setup_net_check()
+            announce_choice("10", "Biệt danh tab")
+            menu_alias()
         elif sub == "11":
-            announce_choice("11", "Lịch tự động restart")
-            menu_auto_restart()
+            announce_choice("11", "Kiểm tra mạng trước khi rejoin")
+            setup_net_check()
         elif sub == "12":
-            announce_choice("12", "Client Key Injector")
-            menu_key_injector()
+            announce_choice("12", "Lịch tự động restart")
+            menu_auto_restart()
         elif sub == "13":
-            announce_choice("13", "Phát hiện màn hình trắng/đen & GUI đứng")
-            menu_screen_guard()
+            announce_choice("13", "Client Key Injector")
+            menu_key_injector()
         elif sub == "14":
-            announce_choice("14", "Chế độ màn hình đen")
-            menu_black_screen()
+            announce_choice("14", "Phát hiện màn hình trắng/đen & GUI đứng")
+            menu_screen_guard()
         elif sub == "15":
-            announce_choice("15", "Auto Server Hop")
+            announce_choice("15", "Chế độ màn hình đen")
+            menu_black_screen()
+        elif sub == "16":
+            announce_choice("16", "Auto Server Hop")
             menu_server_hop()
+        elif sub == "17":
+            announce_choice("17", "Groq AI Setup")
+            menu_groq_setup()
         elif sub == "0":
             msg_info("Quay lại menu chính...")
             time.sleep(0.6)
