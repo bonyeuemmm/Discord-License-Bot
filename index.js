@@ -696,15 +696,20 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-console.log('🤖 Đang tiến hành đăng nhập bot Discord...');
+console.log('🤖 Đang tiến hành kiểm tra Token và đăng nhập bot Discord...');
 
 const loginTimeout = setTimeout(() => {
-    console.error('❌ [CRITICAL] Đăng nhập Discord bị Treo/Timeout quá 10 giây!');
-}, 10000);
+    console.error('❌ [CRITICAL] Kết nối Discord Gateway bị chặn/treo!');
+}, 12000);
 
-client.login(TOKEN)
+// Kiểm tra Token trực tiếp qua Rest API trước khi mở WebSocket
+rest.get(Routes.user())
+    .then(user => {
+        console.log(`🔑 Token hợp lệ! Đã xác thực tài khoản Bot: ${user.username}#${user.discriminator}`);
+        return client.login(TOKEN);
+    })
     .then(() => clearTimeout(loginTimeout))
     .catch(err => {
         clearTimeout(loginTimeout);
-        console.error('❌ LỖI ĐĂNG NHẬP DISCORD:', err);
+        console.error('❌ LỖI XÁC THỰC HOẶC ĐĂNG NHẬP DISCORD:', err.message || err);
     });
