@@ -136,11 +136,11 @@ app.post(['/', '/api/verify'], async (req, res) => {
 
         const rawCode = await fs.promises.readFile(premiumFilePath, 'utf8');
 
-// Lấy key từ Render tự động thay thế vào vị trí đại diện
-const groqKey = process.env.GROQ_API_KEY || "";
-const updatedCode = rawCode.replace("MY_GROQ_KEY_PLACEHOLDER", groqKey);
+        // Lấy key từ Render tự động thay thế vào vị trí đại diện
+        const groqKey = process.env.GROQ_API_KEY || "";
+        const updatedCode = rawCode.replace("MY_GROQ_KEY_PLACEHOLDER", groqKey);
 
-const encodedCode = Buffer.from(updatedCode).toString('base64');
+        const encodedCode = Buffer.from(updatedCode).toString('base64');
 
         return res.json({ 
             valid: true, 
@@ -228,7 +228,6 @@ async function checkExpiredKeys() {
             const daysLeft = hoursLeft / 24;
             const keyVal = row.assigned_key || row.key;
 
-            // Thông báo còn dưới 7 ngày cho loại key >= 30 ngày
             if (row.duration_days >= 30 && daysLeft <= 7 && daysLeft > 1 && !row.notified_7d) {
                 try {
                     const user = await client.users.fetch(row.user_id);
@@ -244,7 +243,6 @@ async function checkExpiredKeys() {
                 } catch (e) {}
             }
 
-            // Thông báo còn dưới 24h (cho key từ 3 đến 30 ngày)
             const isEligibleFor24h = row.duration_days >= 3;
             if (isEligibleFor24h && hoursLeft <= 24 && hoursLeft > 4 && !row.notified_24h) {
                 try {
@@ -261,7 +259,6 @@ async function checkExpiredKeys() {
                 } catch (e) {}
             }
 
-            // Thông báo còn dưới 4h
             if (hoursLeft <= 4 && !row.notified_4h) {
                 try {
                     const user = await client.users.fetch(row.user_id);
@@ -286,21 +283,15 @@ client.once('ready', async () => {
     try {
         const appId = CLIENT_ID || client.user.id;
         
-        // 🛠️ BƯỚC XÓA SẠCH GUILD COMMANDS CŨ TRÁNH TRÙNG LẶP LỆNH
         const guilds = client.guilds.cache.map(g => g.id);
         for (const guildId of guilds) {
             try {
                 await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: [] });
-                console.log(`🧹 Đã dọn dẹp Guild Commands cũ trên server: ${guildId}`);
-            } catch (err) {
-                console.warn(`⚠️ Không thể dọn Guild Commands trên server ${guildId}:`, err.message);
-            }
+            } catch (err) {}
         }
 
-        // 🌐 ĐĂNG KÝ DUY NHẤT GLOBAL COMMANDS
         await rest.put(Routes.applicationCommands(appId), { body: commands });
         console.log(`🌐 Đã đăng ký thành công Slash Commands Toàn Cầu (Global)!`);
-        
         console.log(`✅ Bot Discord đã sẵn sàng hoạt động: ${client.user.tag}`);
         
         checkExpiredKeys();
@@ -329,7 +320,6 @@ client.on('interactionCreate', async interaction => {
 
                 await interaction.respond(choices);
             } catch (err) {
-                console.error('❌ Lỗi Autocomplete resethwid:', err);
                 await interaction.respond([]).catch(() => {});
             }
         }
@@ -342,17 +332,15 @@ client.on('interactionCreate', async interaction => {
     const userAvatar = interaction.user.displayAvatarURL({ dynamic: true });
     const { commandName } = interaction;
 
+    // PHẢN HỒI NGAY LẬP TỨC CHO DISCORD TRÁNH LỖI OVER 3S
     const isPublicCommand = (commandName === 'redeem');
-    
     try {
-        if (!interaction.deferred && !interaction.replied) {
-            await interaction.deferReply({ ephemeral: !isPublicCommand });
-        }
+        await interaction.deferReply({ ephemeral: !isPublicCommand });
     } catch (e) {
-        console.error('❌ Lỗi khi deferReply:', e.message);
         return;
     }
 
+    // KIỂM TRA COOLDOWN
     if (userId !== OWNER_ID) {
         if (!cooldowns.has(userId)) cooldowns.set(userId, new Map());
         const timestamps = cooldowns.get(userId);
@@ -399,8 +387,7 @@ client.on('interactionCreate', async interaction => {
             const keyStr = Math.floor(100000000000 + Math.random() * 900000000000).toString();
 
             await new Key({ key: keyStr, expires_at: 0, duration_days: duration, is_used: 0 }).save();
-            
-            // LOG DM CHI TIẾT CHO OWNER
+
             if (userId !== OWNER_ID) {
                 const ownerEmbed = new EmbedBuilder()
                     .setColor(COLORS.GOLD)
@@ -413,17 +400,16 @@ client.on('interactionCreate', async interaction => {
                     )
                     .setThumbnail(userAvatar)
                     .setFooter(getFooterOptions());
-                await notifyOwner(client, ownerEmbed);
+                notifyOwner(client, ownerEmbed); // Gửi ẩn không await
             }
 
             if (targetUser) {
-                const targetAvatar = targetUser.displayAvatarURL({ dynamic: true });
                 try {
                     const dmEmbed = new EmbedBuilder()
                         .setColor(COLORS.GOLD)
                         .setTitle('🎉 BẠN ĐÃ NHẬN ĐƯỢC KEY BẢN QUYỀN')
                         .setDescription(`Quản trị viên đã gửi tặng bạn một key kích hoạt tool premium.\n\n**Mã Key Kích Hoạt:**\n\`\`\`\n${keyStr}\n\`\`\`\n• **Thời hạn gói:** ${duration === 0 ? '`Vĩnh viễn`' : `\`${duration} Ngày\``}\n\n👉 Sử dụng lệnh \`/redeem key:${keyStr}\` trong server để kích hoạt ngay!`)
-                        .setThumbnail(targetAvatar)
+                        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
                         .setFooter(getFooterOptions());
                     await targetUser.send({ embeds: [dmEmbed] });
 
@@ -463,7 +449,6 @@ client.on('interactionCreate', async interaction => {
 
             await new ResetToken({ token: tokenStr, user_id: targetUser ? targetUser.id : null }).save();
 
-            // LOG DM CHI TIẾT CHO OWNER
             if (userId !== OWNER_ID) {
                 const ownerEmbed = new EmbedBuilder()
                     .setColor(COLORS.INFO)
@@ -475,17 +460,16 @@ client.on('interactionCreate', async interaction => {
                     )
                     .setThumbnail(userAvatar)
                     .setFooter(getFooterOptions());
-                await notifyOwner(client, ownerEmbed);
+                notifyOwner(client, ownerEmbed); // Gửi ẩn không await
             }
 
             if (targetUser) {
-                const targetAvatar = targetUser.displayAvatarURL({ dynamic: true });
                 try {
                     const dmEmbed = new EmbedBuilder()
                         .setColor(COLORS.INFO)
                         .setTitle('🔑 BẠN ĐÃ NHẬN TOKEN RESET HWID')
                         .setDescription(`Dưới đây là token dùng để reset phần cứng HWID cho tool của bạn:\n\n\`\`\`\n${tokenStr}\n\`\`\`\n• Sử dụng kèm trong lệnh \`/resethwid\` để bỏ qua thời gian chờ!`)
-                        .setThumbnail(targetAvatar)
+                        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
                         .setFooter(getFooterOptions());
                     await targetUser.send({ embeds: [dmEmbed] });
                     
@@ -532,19 +516,18 @@ client.on('interactionCreate', async interaction => {
             row.notified_4h = false;
             await row.save();
 
-            // LOG DM CHI TIẾT CHO OWNER
             const ownerEmbed = new EmbedBuilder()
                 .setColor(COLORS.SUCCESS)
                 .setTitle('🔔 BOT LOG: BẰNG CHỨNG KÍCH HOẠT KEY')
                 .addFields(
                     { name: '👤 Thành Viên Kích Hoạt', value: `<@${userId}> \`(${interaction.user.tag})\``, inline: true },
-                    { name: '⏱️️ Thời Hạn Gói', value: row.duration_days === 0 ? '`Vĩnh viễn`' : `\`${row.duration_days} Ngày\``, inline: true },
+                    { name: '⏱ Thời Hạn Gói', value: row.duration_days === 0 ? '`Vĩnh viễn`' : `\`${row.duration_days} Ngày\``, inline: true },
                     { name: '🎟️ Key Gốc Kích Hoạt', value: `\`\`\`\n${inputKey}\n\`\`\``, inline: false },
                     { name: '🔑 Tool Key Cấp Mới', value: `\`\`\`\n${assignedKey}\n\`\`\``, inline: false }
                 )
                 .setThumbnail(userAvatar)
                 .setFooter(getFooterOptions());
-            await notifyOwner(client, ownerEmbed);
+            notifyOwner(client, ownerEmbed); // Gửi ẩn không await
 
             await interaction.editReply({ 
                 embeds: [
