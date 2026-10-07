@@ -697,6 +697,14 @@ client.on('interactionCreate', async interaction => {
 });
 
 console.log('🤖 Đang tiến hành đăng nhập bot Discord...');
-client.login(TOKEN).catch(err => {
-    console.error('❌ LỖI ĐĂNG NHẬP DISCORD:', err);
-});
+
+const loginTimeout = setTimeout(() => {
+    console.error('❌ [CRITICAL] Đăng nhập Discord bị Treo/Timeout quá 10 giây!');
+}, 10000);
+
+client.login(TOKEN)
+    .then(() => clearTimeout(loginTimeout))
+    .catch(err => {
+        clearTimeout(loginTimeout);
+        console.error('❌ LỖI ĐĂNG NHẬP DISCORD:', err);
+    });
