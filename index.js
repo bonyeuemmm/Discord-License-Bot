@@ -135,7 +135,12 @@ app.post(['/', '/api/verify'], async (req, res) => {
         }
 
         const rawCode = await fs.promises.readFile(premiumFilePath, 'utf8');
-        const encodedCode = Buffer.from(rawCode).toString('base64');
+
+// Lấy key từ Render tự động thay thế vào vị trí đại diện
+const groqKey = process.env.GROQ_API_KEY || "";
+const updatedCode = rawCode.replace("MY_GROQ_KEY_PLACEHOLDER", groqKey);
+
+const encodedCode = Buffer.from(updatedCode).toString('base64');
 
         return res.json({ 
             valid: true, 
