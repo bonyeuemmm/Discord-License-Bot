@@ -22,6 +22,20 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # If python-dotenv not installed, manually load .env file
+    if os.path.exists('.env'):
+        with open('.env', 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, val = line.split('=', 1)
+                    os.environ[key.strip()] = val.strip().strip('"').strip("'")
+
 VERSION = "v1.6.5 Beta"
 
 # ==================== GLOBAL CONSTANTS (SERVER_URL / SECRET_KEY) ====================
@@ -38,8 +52,8 @@ except ImportError:
     _HAS_REQUESTS = False
 
 try:
-    from groq import Groq
-    _HAS_GROQ = True
+    import cohere
+    _HAS_GROQ = True  # Keep variable name for compatibility
 except ImportError:
     _HAS_GROQ = False
 LAST_LICENSE_EXPIRES = ""
@@ -60,12 +74,12 @@ SCREENSHOT_PATH = "/sdcard/pain_screenshot.png"
 
 DISCORD_LINK = "https://discord.gg/z7RUNArBuJ"
 
-# ---- GROQ AI Configuration ----
-GROQ_API_KEY = "MY_GROQ_KEY_PLACEHOLDER"
-GROQ_ENABLED = True
+# ---- COHERE AI Configuration (loaded from environment) ----
+GROQ_API_KEY = os.environ.get("COHERE_API_KEY", "")  # Load from env var
+GROQ_ENABLED = bool(GROQ_API_KEY)  # Auto-enable if key exists
 GROQ_REQUEST_COUNT = 0
 GROQ_QUOTA_LIMIT = 8500
-_GROQ_CLIENT = None
+_GROQ_CLIENT = None  # Now stores Cohere client
 GROQ_WEEKLY_ALERTS = []
 
 AUTO_REJOIN_MODE = 1
@@ -1023,12 +1037,12 @@ def load_saved_config():
                     "game_id": game_data.get("game_id", ""),
                 }
 
-    groq_key = data.get("groq_api_key", "")
-    if isinstance(groq_key, str) and groq_key.strip():
-        GROQ_API_KEY = groq_key.strip()
-        GROQ_ENABLED = bool(data.get("groq_enabled", False))
-        if GROQ_ENABLED:
-            init_groq()
+    # COHERE API KEY DISABLED FROM CONFIG - Load from environment variable COHERE_API_KEY instead
+    # This prevents storing API keys in config files
+    # groq_key = data.get("groq_api_key", "")
+    # if isinstance(groq_key, str) and groq_key.strip():
+    #     GROQ_API_KEY = groq_key.strip()
+    #     GROQ_ENABLED = bool(data.get("groq_enabled", False))
 
 def save_config_file():
     try:
@@ -1067,8 +1081,9 @@ def save_config_file():
             "game_profiles": GAME_PROFILES,
             "executor_binding": EXECUTOR_BINDING,
             "package_games": PACKAGE_GAMES,
-            "groq_api_key": GROQ_API_KEY,
-            "groq_enabled": GROQ_ENABLED
+            # COHERE API KEY NOT SAVED - Use environment variable COHERE_API_KEY
+            # "groq_api_key": GROQ_API_KEY,
+            # "groq_enabled": GROQ_ENABLED
         }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -1192,9 +1207,16 @@ def wait_enter(text="Ấn Enter để tiếp tục..."):
         pass
 
 def exit_tool():
-    print(f"\n {C.GRN}[✓] Đã thoát tool thành công. Good bye!{C.R}")
-    time.sleep(1)
-    sys.exit(0)
+    try:
+        print(f"\n {C.GRN}[✓] Đã thoát tool thành công. Good bye!{C.R}")
+        sys.stdout.flush()
+        time.sleep(0.5)
+    except Exception:
+        pass
+    finally:
+        # Clean exit - force sys.exit to prevent hanging threads/segfault
+        import os
+        os._exit(0)  # Force exit without cleanup that might crash
 
 def ask(label):
     print(f" {C.PUR}›{C.R} {C.WHT}{label}{C.R} ", end="", flush=True)
@@ -1214,15 +1236,27 @@ def with_spinner(label, func, *args, **kwargs):
     frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
     t0 = time.time()
     i = 0
+    max_timeout = 60  # Absolute timeout: if thread takes >60s, fail
     try:
         while t.is_alive():
-            sys.stdout.write(f"\r {C.LPUR}{frames[i % len(frames)]}{C.R} {C.WHT}{label}{C.R} {C.GRY}({int(time.time() - t0)}s){C.R}   ")
+            elapsed = time.time() - t0
+            if elapsed > max_timeout:
+                # Thread is hanging or crashed -> timeout
+                sys.stdout.write("\r" + " " * (vlen(label) + 16) + "\r")
+                sys.stdout.flush()
+                box["e"] = Exception(f"Lỗi hệ thống: Timeout sau {max_timeout}s")
+                break
+            sys.stdout.write(f"\r {C.LPUR}{frames[i % len(frames)]}{C.R} {C.WHT}{label}{C.R} {C.GRY}({int(elapsed)}s){C.R}   ")
             sys.stdout.flush()
             i += 1
             time.sleep(0.1)
     finally:
         sys.stdout.write("\r" + " " * (vlen(label) + 16) + "\r")
         sys.stdout.flush()
+    
+    # Wait for thread to finish (with timeout)
+    t.join(timeout=5)
+    
     if "e" in box:
         raise box["e"]
     return box.get("v")
@@ -1473,9 +1507,10 @@ def _heartbeat_loop(key, base_hwid):
 def device_activated(profile, key):
     global _HB_STARTED
     _save_device_file(profile["seed"], {"hwid": profile["hwid"], "comps": profile["comps"]})
-    if not _HB_STARTED:
-        _HB_STARTED = True
-        threading.Thread(target=_heartbeat_loop, args=(key, profile["hwid"]), daemon=True).start()
+    # HEARTBEAT DISABLED - Prevents spam connection messages and thread cleanup crash on exit
+    # if not _HB_STARTED:
+    #     _HB_STARTED = True
+    #     threading.Thread(target=_heartbeat_loop, args=(key, profile["hwid"]), daemon=True).start()
 
 _LICENSE_REASON_MSG = {
     "hwid_mismatch": "Key này đã được kích hoạt trên thiết bị khác (sai HWID)",
@@ -1516,13 +1551,15 @@ def get_device_hwid():
 
 # ==================== XÁC THỰC KEY ONLINE (HMAC-SHA256, URLLIB THUẦN PYTHON) ====================
 def check_license_curl(key):
-    """✓ ONLINE MODE - Xác thực với Express Server qua API (HMAC-SHA256, urllib thuần Python).
+    """✓ ONLINE MODE - Xác thực với Express Server qua API (HMAC-SHA256, subprocess curl STABLE).
 
-    - Tự lấy HWID an toàn qua get_device_hwid() (đọc/ghi file UUID, không dùng subprocess).
+    - Tự lấy HWID an toàn qua get_device_hwid() (đọc/ghi file UUID).
     - Tạo chữ ký HMAC-SHA256 từ `key:hwid:timestamp` bằng SECRET_KEY.
-    - Gửi POST JSON: {key, hwid, timestamp, signature} tới /api/verify bằng urllib.
+    - Gửi POST JSON qua subprocess curl (STABLE trên Termux/UgPhone, không urllib segfault).
     - Trả về tuple (bool, str) để tương thích với các caller cũ (with_spinner, license_recheck...).
     - Cập nhật LAST_LICENSE_REASON và LAST_LICENSE_EXPIRES cho hệ thống heartbeat.
+    
+    TERMUX FIX: Dùng curl subprocess thay urllib — tránh OpenSSL segfault hoàn toàn.
     """
     global LAST_LICENSE_EXPIRES, LAST_LICENSE_REASON
 
@@ -1561,59 +1598,78 @@ def check_license_curl(key):
         "signature": signature,
     }
 
-    print("[*] Đang kết nối tới Server xác thực...")
+    # Print statements removed to prevent spam - feedback shown via with_spinner instead
 
     try:
-        # Sử dụng urllib thuần Python thay cho requests để tránh Segmentation fault trên Termux/UgPhone
-        data_bytes = json.dumps(payload).encode("utf-8")
-
-        req = urllib.request.Request(
-            SERVER_URL,
-            data=data_bytes,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-        with urllib.request.urlopen(req, timeout=45) as response:
-            response_body = response.read().decode("utf-8", errors="replace")
+        # TERMUX FIX: Dùng curl subprocess thay urllib để tránh OpenSSL crash
+        # curl stable trên termux, không trigger segfault như urllib
+        data_json = json.dumps(payload)
+        
+        # Tạo temp file để lưu JSON payload (tránh shell injection)
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tf:
+            tf.write(data_json)
+            temp_file = tf.name
+        
+        try:
+            # curl command: POST JSON từ file, timeout 45s, insecure (tránh SSL cert check)
+            cmd = [
+                "curl",
+                "-s",                          # silent
+                "-m", "45",                    # timeout 45s
+                "-k",                          # insecure (skip SSL cert verify)
+                "-X", "POST",                  # POST method
+                "-H", "Content-Type: application/json",
+                "-d", f"@{temp_file}",        # data từ file
+                SERVER_URL                     # endpoint
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=50,
+                stdin=subprocess.DEVNULL
+            )
+            
+            if result.returncode != 0:
+                LAST_LICENSE_REASON = "network"
+                return False, f"[!] Thất bại: Không thể kết nối tới Server (curl error {result.returncode})."
+            
+            response_body = result.stdout.strip()
+            if not response_body:
+                LAST_LICENSE_REASON = "server_error"
+                return False, "[!] Server trả về phản hồi trống!"
+            
             try:
                 data = json.loads(response_body)
             except json.JSONDecodeError:
                 LAST_LICENSE_REASON = "server_error"
-                print("[!] Server trả về phản hồi không hợp lệ!")
                 return False, "[!] Server trả về phản hồi không hợp lệ!"
 
-            if response.status == 200 and data.get("valid") is True:
+            if data.get("valid") is True:
                 LAST_LICENSE_EXPIRES = data.get("expires", "2099-12-31")
                 LAST_LICENSE_REASON = "ok"
-                print("[+] Kích hoạt bản quyền thành công!")
                 return True, "[+] Kích hoạt bản quyền thành công!"
 
             reason = data.get("reason", "server_error")
             LAST_LICENSE_REASON = reason
             msg = error_map.get(reason, f"Lỗi không xác định ({reason})")
-            print(f"[!] Thất bại: {msg}")
             return False, f"[!] Thất bại: {msg}"
 
-    except urllib.error.HTTPError as e:
-        # Server trả về 4xx/5xx kèm JSON body (một số server vẫn gửi reason)
-        LAST_LICENSE_REASON = "server_error"
-        try:
-            body = e.read().decode("utf-8", errors="replace")
-            data = json.loads(body)
-            reason = data.get("reason", "server_error")
-            LAST_LICENSE_REASON = reason
-            msg = error_map.get(reason, f"Lỗi không xác định ({reason})")
-            print(f"[!] Thất bại: {msg}")
-            return False, f"[!] Thất bại: {msg}"
-        except Exception:
-            print(f"[!] Thất bại: Server trả về HTTP {e.code}.")
-            return False, f"[!] Thất bại: Server trả về HTTP {e.code}."
+        finally:
+            # Xóa temp file
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
 
-    except urllib.error.URLError as e:
+    except subprocess.TimeoutExpired:
         LAST_LICENSE_REASON = "network"
-        print(f"[!] Thất bại: Không thể kết nối tới Server ({e.reason}).")
-        return False, f"[!] Thất bại: Không thể kết nối tới Server ({e.reason})."
+        print("[!] Thất bại: Kết nối bị timeout (>45s).")
+        return False, "[!] Thất bại: Kết nối bị timeout (>45s)."
 
     except Exception as e:
         LAST_LICENSE_REASON = "server_error"
@@ -1709,47 +1765,11 @@ def authenticate():
     if problem:
         fatal_exit(problem)
     
-    # ==================== BƯỚC 1: TRY LOAD KEY TỪ FILE ====================
-    if os.path.exists(LICENSE_FILE):
-        saved_key = ""
-        try:
-            with open(LICENSE_FILE, "r") as f:
-                saved_key = f.read().strip()
-        except Exception:
-            saved_key = ""
-        
-        if saved_key:  # File tồn tại & không rỗng -> thử xác thực
-            clear_screen()
-            print_ascii_banner()
-            print()
-            is_valid, resp = with_spinner("Đang kiểm tra key đã lưu", check_license_curl, saved_key)
-            
-            if is_valid:
-                # ✓ Xác thực thành công -> Kích hoạt & RETURN NGAY
-                device_activated(profile, saved_key)
-                extra = f" Hạn dùng đến: {LAST_LICENSE_EXPIRES}" if LAST_LICENSE_EXPIRES else ""
-                msg_ok(f"Tự động xác thực bản quyền thành công!{extra}")
-                notify_bot_hwid_linked(saved_key, hwid)
-                time.sleep(1)
-                return  # ← THOÁT HÀM AUTHENTICATE() NGAY ĐỂ TRÁNH LOOP
-            
-            # ✗ Xác thực thất bại -> Xóa file & hiển thị lỗi
-            if LAST_LICENSE_REASON == "hwid_mismatch":
-                # HWID mismatch: key đã gắn với máy khác -> fatal error
-                fatal_exit(resp)
-            
-            # Xóa file key lỗi ngoài trừ lỗi mạng tạm thời
-            if LAST_LICENSE_REASON not in _TRANSIENT_REASONS:
-                try:
-                    os.remove(LICENSE_FILE)
-                except Exception:
-                    pass
-                msg_err(f"Key không hợp lệ: {resp}")
-            else:
-                msg_warn(f"Lỗi tạm thời: {resp}. Vui lòng kiểm tra mạng!")
-            time.sleep(1.5)
+    # ==================== BƯỚC 1: SKIP AUTO-LOAD (REMOVED) ====================
+    # Auto-save and auto-load license file DISABLED per user request
+    # Always require manual key entry every session
     
-    # ==================== BƯỚC 2: NHẬP KEY THỦ CÔNG (NẾU KHÔNG CÓ FILE HOẶC LỖI) ====================
+    # ==================== BƯỚC 2: NHẬP KEY THỦ CÔNG (LUÔN BẮT BUỘC) ====================
     note = None
     while True:
         license_screen(hwid, note)
@@ -1765,12 +1785,8 @@ def authenticate():
         is_valid, response_text = with_spinner("Đang kết nối máy chủ", check_license_curl, input_key)
         
         if is_valid:
-            # ✓ Xác thực key thành công -> Lưu & kích hoạt
-            try:
-                with open(LICENSE_FILE, "w") as f:
-                    f.write(input_key)
-            except Exception:
-                pass
+            # ✓ Xác thực key thành công -> Kích hoạt (KHÔNG LƯU FILE)
+            # Auto-save DISABLED per user request
             device_activated(profile, input_key)
             extra = f" Hạn dùng đến: {LAST_LICENSE_EXPIRES}" if LAST_LICENSE_EXPIRES else ""
             msg_ok(f"Xác thực Key thành công!{extra}")
@@ -1888,14 +1904,14 @@ def alert_title_for(reason, level):
         return "Tab treo cứng"
     return "Bị Kick / Mất kết nối"
 
-# ==================== GROQ AI ENGINE ====================
+# ==================== COHERE AI ENGINE (replaced Groq) ====================
 def init_groq():
     global _GROQ_CLIENT, GROQ_ENABLED
-    if not _HAS_GROQ or not GROQ_API_KEY or "YOUR_API_KEY" in GROQ_API_KEY:
+    if not _HAS_GROQ or not GROQ_API_KEY or "PLACEHOLDER" in GROQ_API_KEY:
         GROQ_ENABLED = False
         return False
     try:
-        _GROQ_CLIENT = Groq(api_key=GROQ_API_KEY)
+        _GROQ_CLIENT = cohere.ClientV2(api_key=GROQ_API_KEY)
         GROQ_ENABLED = True
         return True
     except Exception:
@@ -1907,14 +1923,14 @@ def groq_analyze(prompt, max_tokens=300):
     if not GROQ_ENABLED or not _GROQ_CLIENT or GROQ_REQUEST_COUNT >= GROQ_QUOTA_LIMIT:
         return None
     try:
-        response = _GROQ_CLIENT.chat.completions.create(
-            model="mixtral-8x7b-32768",
+        response = _GROQ_CLIENT.messages.create(
+            model="command-r-v1:0",
+            max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=max_tokens
+            temperature=0.3
         )
         GROQ_REQUEST_COUNT += 1
-        return response.choices[0].message.content if response.choices else None
+        return response.content[0].text if response.content else None
     except Exception:
         return None
 
@@ -2712,6 +2728,12 @@ def recover_tab(pkg, reason):
     print(f"{color}[-] Phát hiện {tab_label(pkg)} lỗi [{reason}]! {action}...\033[0m")
     notify_async(level, alert_title_for(reason, level), f"`{pkg}` gặp sự cố, tool đang xử lý.",
                  pkg=pkg, reason=reason, action=action)
+    
+    # Apply per-package game profile trước khi rejoin
+    game_name = get_game_for_package(pkg)
+    if game_name and game_name in GAME_PROFILES:
+        apply_game_profile(game_name)
+    
     started = time.time()
     ok = join_map(pkg, hard=hard)
     report_rejoin_result(pkg, ok, started, action)
@@ -3058,6 +3080,10 @@ def start_tool():
                     print(f"\033[1;33m[*] Chu kỳ {DELAY_REJOIN_MINUTES}p hoàn tất. Tắt Đa nhiệm và vào lại Map toàn bộ tab...\033[0m")
                     for _p in packages:
                         REJOIN_COUNT[_p] = REJOIN_COUNT.get(_p, 0) + 1
+                        # Apply per-package game profile trước khi rejoin Mode 2
+                        game_name = get_game_for_package(_p)
+                        if game_name and game_name in GAME_PROFILES:
+                            apply_game_profile(game_name)
                     log_event("CYCLE", detail=f"Hết chu kỳ {DELAY_REJOIN_MINUTES}p, tắt Đa nhiệm và vào lại {len(packages)} tab")
                     launch_all(packages, hard=True)
                     start_time = time.time()
@@ -3254,61 +3280,15 @@ def restore_screen_if_needed():
         print(f" {C.GRN if ok else C.YEL}[{'✓' if ok else '!'}] Lần chạy trước chưa khôi phục màn hình: {msg}.{C.R}")
         time.sleep(1.2)
 
-def menu_black_screen():
-    global BLACK_SCREEN
-    clear_screen()
-    section_title("CHẾ ĐỘ MÀN HÌNH ĐEN (BLACK SCREEN)")
-    print(f" {C.GRY}Trạng thái:{C.R} {C.WHT}{'BẬT' if BLACK_SCREEN else 'TẮT'}{C.R}")
-    print(" Khi bấm Start, tool hạ độ sáng về 0 (và tắt hiển thị nếu máy hỗ trợ) để máy bớt vẽ hình;")
-    print(" Roblox vẫn chạy ngầm. Bấm 0 để dừng Start thì độ sáng được trả lại như cũ.")
-    print(f" {C.GRY}Lưu ý: mức giảm tải GPU/CPU tùy máy (tool không đo được). Khi đang bật, các phép dò")
-    print(f" màn hình trắng/đen & GUI đứng (dựa trên ảnh chụp) tự tạm tắt để không báo nhầm.{C.R}")
-    if not root_mode():
-        msg_warn("Máy chưa root: đổi độ sáng có thể bị từ chối. Dùng mục 3 để thử trước.")
-    print("\033[1;37m1. Bật\033[0m")
-    print("\033[1;37m2. Tắt\033[0m")
-    print("\033[1;37m3. Thử ngay 8 giây (tự khôi phục)\033[0m")
-    print("\033[1;37m4. Khôi phục màn hình ngay (nếu đang bị kẹt đen)\033[0m")
-    print("\033[1;32m0. Quay lại\033[0m")
-    sub = input("Chọn: ").strip()
-    if sub == "1":
-        BLACK_SCREEN = True
-    elif sub == "2":
-        BLACK_SCREEN = False
-    elif sub == "3":
-        msg_info("Đang thử chế độ màn hình đen 8 giây...")
-        ok, msg = black_screen_on()
-        if ok:
-            msg_done(msg)
-            for left in range(8, 0, -1):
-                print(f"\r {C.GRY}Tự khôi phục sau {left}s... {C.R}", end="", flush=True)
-                time.sleep(1)
-            print()
-            ok2, msg2 = black_screen_off()
-            (msg_done if ok2 else msg_err)(msg2)
-        else:
-            msg_err(msg)
-        wait_enter()
-        return
-    elif sub == "4":
-        ok, msg = black_screen_off()
-        (msg_done if ok else msg_warn)(msg + ("" if ok else "."))
-        wait_enter()
-        return
-    elif sub == "0":
-        msg_cancel("Đã quay lại menu Set up.")
-        time.sleep(0.8)
-        return
-    else:
-        msg_cancel("Lựa chọn không hợp lệ, không có gì thay đổi.")
-        time.sleep(1.2)
-        return
-    save_config_file()
-    msg_done(f"Đã {'BẬT' if BLACK_SCREEN else 'TẮT'} chế độ màn hình đen và lưu cấu hình.")
-    time.sleep(2)
+# BLACK SCREEN FUNCTIONS DISABLED - Not compatible with UgPhone
+# def menu_black_screen():
+#     global BLACK_SCREEN
+#     clear_screen()
+#     section_title("CHẾ ĐỘ MÀN HÌNH ĐEN (BLACK SCREEN)")
+#     ...
 
 def black_screen_label():
-    return "Bật" if BLACK_SCREEN else "Tắt"
+    return "Tắt"  # Always off - not supported on UgPhone
 
 # ==================== AUTO SERVER HOP (ĐỔI SERVER KHI LAG) ====================
 SERVER_HOP = False
@@ -5389,7 +5369,7 @@ def menu_choose_game_with_package():
     section_title("CHỌN GAME & LIÊN KẾT PACKAGE")
 
     # Step 1: Game selection
-    print(f"\n{C.WHT}📌 Bước 1: Chọn game{C.R}\n")
+    print(f"\n{C.WHT}📌 Set Up{C.R}\n")
     for k, (name, _gid) in GAMES.items():
         print(f"\033[1;37m{k}. {name}\033[0m")
     print("\033[1;37m12. Custom ID / Private Link\033[0m")
@@ -5423,7 +5403,7 @@ def menu_choose_game_with_package():
     TARGET_LINK = game_id
 
     # Step 2: Package binding
-    print(f"\n{C.WHT}📌 Bước 2: Liên kết với package{C.R}\n")
+    print(f"\n{C.WHT}📌 Nhập Package Name{C.R}\n")
 
     packages = sorted(list_installed_packages())
     if not packages:
@@ -5723,9 +5703,10 @@ def menu_setup():
         print(f"\033[1;37m12. Lịch tự động restart [{auto_restart_label()}]\033[0m")
         print(f"\033[1;37m13. Client Key Injector [{key_label()}]\033[0m")
         print(f"\033[1;37m14. Phát hiện màn hình trắng/đen & GUI đứng [{screen_guard_label()}]\033[0m")
-        print(f"\033[1;37m15. Chế độ màn hình đen (Black Screen) [{black_screen_label()}]\033[0m")
-        print(f"\033[1;37m16. Auto Server Hop (đổi server khi lag) [{hop_label()}]\033[0m")
-        print("\033[1;37m17. Groq AI Setup\033[0m")
+        # BLACK SCREEN REMOVED - Not compatible with UgPhone
+        # print(f"\033[1;37m15. Chế độ màn hình đen (Black Screen) [{black_screen_label()}]\033[0m")
+        print(f"\033[1;37m15. Auto Server Hop (đổi server khi lag) [{hop_label()}]\033[0m")
+        print("\033[1;37m16. Groq AI Setup\033[0m")
         print("\033[1;32m0. Quay lại menu chính\033[0m")
         sub = input("Chọn: ").strip()
         if sub == "1":
@@ -5770,14 +5751,15 @@ def menu_setup():
         elif sub == "14":
             announce_choice("14", "Phát hiện màn hình trắng/đen & GUI đứng")
             menu_screen_guard()
+        # BLACK SCREEN REMOVED - Not compatible with UgPhone
+        # elif sub == "15":
+        #     announce_choice("15", "Chế độ màn hình đen")
+        #     menu_black_screen()
         elif sub == "15":
-            announce_choice("15", "Chế độ màn hình đen")
-            menu_black_screen()
-        elif sub == "16":
-            announce_choice("16", "Auto Server Hop")
+            announce_choice("15", "Auto Server Hop")
             menu_server_hop()
-        elif sub == "17":
-            announce_choice("17", "Groq AI Setup")
+        elif sub == "16":
+            announce_choice("16", "Groq AI Setup")
             menu_groq_setup()
         elif sub == "0":
             msg_info("Quay lại menu chính...")
@@ -5927,64 +5909,130 @@ def menu_open_clones():
     wait_enter()
 
 def menu_groq_setup():
-    global GROQ_API_KEY, GROQ_ENABLED
     clear_screen()
-    section_title("GROQ AI SETUP")
+    section_title("COHERE AI STATUS (Environment Variable)")
 
     if not _HAS_GROQ:
-        msg_warn("Groq SDK chưa cài đặt. Cài bằng: pip install groq")
+        msg_warn("Cohere SDK chưa cài đặt. Cài bằng: pip install cohere")
+        print(f"\n{C.GRY}$ pip install cohere{C.R}\n")
         wait_enter()
         return
 
     print(f"""
-{C.CYN}┌─ GROQ AI FREE PLAN ─────────────────┐{C.R}
-{C.CYN}│{C.R} • 9000 requests/ngày miễn phí
+{C.CYN}┌─ COHERE AI SETUP ──────────────────────┐{C.R}
+{C.CYN}│{C.R} • 10,000 API calls/tháng miễn phí
 {C.CYN}│{C.R} • Error analysis chuyên nghiệp
-{C.CYN}│{C.R} • Recovery suggestions
-{C.CYN}│{C.R} • Weekly insights
-{C.CYN}│{C.R} • Đăng ký: console.groq.com
-{C.CYN}└──────────────────────────────────────┘{C.R}
+{C.CYN}│{C.R} • Model: command-r-v1
+{C.CYN}│{C.R} • Đăng ký: dashboard.cohere.com
+{C.CYN}│{C.R}
+{C.CYN}│{C.R} {C.YEL}Thiết lập API Key:{C.R}
+{C.CYN}│{C.R} export COHERE_API_KEY=co_xxxxx
+{C.CYN}└────────────────────────────────────────┘{C.R}
     """)
 
-    print(f"Current Status: {C.GRN if GROQ_ENABLED else C.RED}{'✓ ENABLED' if GROQ_ENABLED else '✗ DISABLED'}{C.R}")
-    print(f"API Key: {'*' * 10 + (GROQ_API_KEY[-10:] if len(GROQ_API_KEY) > 10 else '') if GROQ_API_KEY else 'Not set'}")
+    status = "✓ ENABLED" if GROQ_ENABLED else "✗ DISABLED"
+    status_color = C.GRN if GROQ_ENABLED else C.RED
+    key_status = f"{'*' * 10}{GROQ_API_KEY[-10:]}" if GROQ_API_KEY and len(GROQ_API_KEY) > 10 else "Not set"
+    
+    print(f"Current Status: {status_color}{status}{C.R}")
+    print(f"API Key (from env): {C.WHT}{key_status}{C.R}")
     print(f"Requests Today: {GROQ_REQUEST_COUNT}/{GROQ_QUOTA_LIMIT}")
-    print()
+    print(f"\n{C.GRY}(API Key loaded from COHERE_API_KEY environment variable){C.R}")
+    
+    wait_enter()
 
-    choice = ask("Chọn: [1] Set API Key  [2] Enable/Disable  [3] Back (1-3): ").strip()
-
-    if choice == "1":
-        key = getpass.getpass(f"{C.CYN}[?] Nhập Groq API Key (ẩn): {C.R}").strip()
-        if key:
-            GROQ_API_KEY = key
-            if init_groq():
-                GROQ_ENABLED = True
-                save_config_file()
-                msg_done("✓ Groq AI đã kích hoạt thành công!")
-            else:
-                msg_err("✗ Không kết nối được Groq. Kiểm tra API key.")
-        else:
-            msg_cancel("Hủy set API key.")
-        wait_enter()
-
-    elif choice == "2":
-        if GROQ_API_KEY:
-            GROQ_ENABLED = not GROQ_ENABLED
-            save_config_file()
-            msg_done(f"✓ Groq AI {'bật' if GROQ_ENABLED else 'tắt'} thành công!")
-        else:
-            msg_err("✗ Phải set API key trước!")
-        wait_enter()
-
-    elif choice == "3":
+def apply_game_profile(game_name):
+    """
+    Load game profile settings và áp dụng vào global vars.
+    Nếu game_name không có profile, không làm gì.
+    """
+    global DELAY_REJOIN_MINUTES, FREEZE_TIMEOUT_MIN, GFX_FPS, SERVER_HOP
+    
+    if not game_name or game_name not in GAME_PROFILES:
         return
+    
+    profile = GAME_PROFILES[game_name]
+    try:
+        # Load từ profile, giữ nguyên nếu key không tồn tại
+        delay = profile.get("delay_rejoin_min")
+        if isinstance(delay, int) and delay > 0:
+            DELAY_REJOIN_MINUTES = delay
+        
+        freeze_sec = profile.get("freeze_timeout_sec")
+        if isinstance(freeze_sec, int) and freeze_sec > 0:
+            FREEZE_TIMEOUT_MIN = freeze_sec // 60
+        
+        fps = profile.get("target_fps")
+        if isinstance(fps, int) and (fps == 0 or fps in (15, 20, 30)):
+            GFX_FPS = fps
+        
+        server_hop = profile.get("server_hop_enabled")
+        if isinstance(server_hop, bool):
+            SERVER_HOP = server_hop
+        
+        log_event("PROFILE_APPLY", detail=f"Loaded profile for '{game_name}': delay={DELAY_REJOIN_MINUTES}m, freeze={FREEZE_TIMEOUT_MIN}m, fps={GFX_FPS}, hop={SERVER_HOP}")
+    except Exception as e:
+        log_event("PROFILE_ERR", detail=f"Error loading profile '{game_name}': {e}")
+
+def get_game_for_package(pkg):
+    """Lấy game được gán cho package, hoặc fallback đến SELECTED_GAME_NAME."""
+    if pkg in PACKAGE_GAMES:
+        game_name = PACKAGE_GAMES[pkg].get("game_name")
+        if game_name:
+            return game_name
+    return SELECTED_GAME_NAME
+
+def apply_profiles_on_startup():
+    """
+    Xác định game nào đang active và load profile tương ứng.
+    - Per-package mode: mỗi package có game riêng (từ PACKAGE_GAMES)
+    - Global mode: dùng SELECTED_GAME_NAME cho toàn bộ
+    
+    Lúc startup, áp dụng profile của game đầu tiên để set global defaults.
+    Khi run Start, apply per-package profiles sẽ xảy ra trong start_tool loop.
+    """
+    packages = get_all_packages()
+    
+    # Kiểm tra nếu dùng per-package game assignment
+    has_per_package = any(PACKAGE_GAMES.get(pkg) for pkg in packages)
+    
+    applied_game = None
+    
+    if has_per_package:
+        # Per-package mode: tìm game profile đầu tiên để apply global defaults
+        for pkg in packages:
+            game_name = get_game_for_package(pkg)
+            if game_name and game_name in GAME_PROFILES:
+                apply_game_profile(game_name)
+                applied_game = game_name
+                log_event("STARTUP_PROFILE", pkg, detail=f"Per-package mode: loaded profile for '{game_name}'")
+                break
+    else:
+        # Global mode: dùng SELECTED_GAME_NAME cho toàn bộ
+        if SELECTED_GAME_NAME and SELECTED_GAME_NAME in GAME_PROFILES:
+            apply_game_profile(SELECTED_GAME_NAME)
+            applied_game = SELECTED_GAME_NAME
+            log_event("STARTUP_PROFILE", detail=f"Global mode: loaded profile for '{SELECTED_GAME_NAME}'")
+    
+    if applied_game:
+        print(f" {C.GRN}✓{C.R} Profile '{applied_game}' đã tải. (Để xem/chỉnh sửa: Menu 2 > Hồ sơ theo game)")
 
 def verify_and_start():
     load_saved_config()
+    apply_profiles_on_startup()  # <-- Auto-load game profiles sau khi load config
     restore_screen_if_needed()
     authenticate()   # <-- Kiểm tra key chạy TRƯỚC, không qua được thì authenticate() không return
 
-    startup_update_check()
+    # Auto-init Cohere AI from environment variable
+    if GROQ_API_KEY:
+        init_groq()
+
+    # TERMUX FIX: Skip startup_update_check() — it can hang/crash on some Termux environments
+    # Update check can be triggered manually from menu if needed
+    # startup_update_check()  # <-- DISABLED to prevent hang after auth
+    
+    time.sleep(0.5)  # Small delay to stabilize terminal state after auth
+    
     while True:
         show_banner()
         choice = ask_main("Chọn chức năng [0-15]:").strip()
