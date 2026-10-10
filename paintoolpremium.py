@@ -36,7 +36,7 @@ except ImportError:
                     key, val = line.split('=', 1)
                     os.environ[key.strip()] = val.strip().strip('"').strip("'")
 
-VERSION = "v1.6.5 Beta"
+VERSION = "v1.6.6 Beta"
 
 # ==================== GLOBAL CONSTANTS (SERVER_URL / SECRET_KEY) ====================
 SERVER_URL = "https://paintool-bot.onrender.com/api/verify"
@@ -4903,109 +4903,137 @@ def _read_cookies_from_prefs(pkg):
     return found, None
 
 def get_cookie_account():
-    """Lấy cookie .ROBLOSECURITY từ package Roblox đã đăng nhập"""
+    """Lấy cookie từ package đã chọn hoặc tất cả package"""
     clear_screen()
     section_title("LẤY COOKIE ACCOUNT ROBLOX")
 
-    print(f"{C.GRY}Tính năng này giúp bạn lấy cookie từ package clone mà bạn đã setup.{C.R}\n")
+    print(f"{C.GRY}Lấy .ROBLOSECURITY từ package Roblox trên thiết bị{C.R}\n")
 
-    if not root_mode():
-        msg_err("Máy không có root, không thể lấy cookie từ package.")
+    # Get list of packages to extract from
+    active = get_active_packages()
+    if not active:
+        msg_err("Không có package nào đang chạy.")
         wait_enter()
         return
 
-    packages = get_all_packages()
-    if not packages:
-        msg_err("Không tìm thấy package Roblox nào trên thiết bị.")
+    # If SELECTED_PACKAGES is set, use it; otherwise use all active
+    packages_to_check = list(SELECTED_PACKAGES) if SELECTED_PACKAGES else active
+    if not packages_to_check:
+        packages_to_check = active
+
+    cookies_found = []
+
+    for pkg in sorted(packages_to_check):
+        if pkg not in active:
+            continue
+
+        print(f"{C.GRY}Kiểm tra {pkg}...{C.R}")
+
+        # Try WebView DB first
+        found_cookies, reason = _read_cookies_from_webview_db(pkg)
+
+        # Fallback to prefs
+        if not found_cookies or COOKIE_NAME not in found_cookies:
+            found_cookies, reason = _read_cookies_from_prefs(pkg)
+
+        if COOKIE_NAME in found_cookies:
+            cookie = found_cookies[COOKIE_NAME]
+            valid, msg = roblox_check_cookie(cookie)
+
+            status = f"{C.GRN}✓ Còn hạn{C.R}"
+            if valid is False:
+                status = f"{C.RED}✗ Hết hạn{C.R}"
+            elif valid is None:
+                status = f"{C.YEL}? Không kiểm tra được{C.R}"
+
+            cookies_found.append((pkg, cookie, status))
+            print(f"  {status}\n")
+        else:
+            print(f"  {C.RED}✗ Không tìm thấy cookie{C.R}\n")
+
+    if not cookies_found:
+        msg_err("Không tìm thấy cookie nào trong các package đang chạy.")
         wait_enter()
         return
 
-    print(f"Tìm thấy {len(packages)} packages:\n")
-    for i, pkg in enumerate(packages, 1):
-        print(f" {C.LPUR}[{i}]{C.R} {pkg}")
+    # Display found cookies
+    clear_screen()
+    section_title("COOKIE FOUND")
+    print(f"Tìm thấy {len(cookies_found)} cookie:\n")
 
-    print(f"\n{C.GRY}(Hoặc nhập tên package trực tiếp, ví dụ: com.roblox.clone1){C.R}\n")
-    choice = ask("Chọn package (số hoặc tên):").strip()
+    for i, (pkg, cookie, status) in enumerate(cookies_found, 1):
+        print(f"{C.LPUR}[{i}]{C.R} {pkg}")
+        print(f"    {status}")
+        print(f"    {cookie_preview(cookie)}\n")
 
-    selected_pkg = None
-    if choice.isdigit() and 1 <= int(choice) <= len(packages):
-        selected_pkg = packages[int(choice) - 1]
-    elif choice in packages:
-        selected_pkg = choice
+    print(f"{C.LPUR}[1]{C.R} Copy cookie đầu tiên")
+    print(f"{C.LPUR}[2]{C.R} Chọn package để copy")
+    print(f"{C.LPUR}[3]{C.R} Lưu tất cả vào file")
+    print(f"{C.RED}[0] Quay lại{C.R}\n")
 
-    if not selected_pkg:
-        msg_err("Package không hợp lệ.")
-        wait_enter()
-        return
+    choice = ask("Chọn:").strip()
 
-    print(f"\n{C.YEL}[*] Đang lấy cookie từ {selected_pkg}...{C.R}")
-
-    try:
-        found, reason = _read_cookies_from_webview_db(selected_pkg)
-        if not found:
-            found_p, reason_p = _read_cookies_from_prefs(selected_pkg)
-            if found_p:
-                found, reason = found_p, None
-            else:
-                reason = reason or reason_p
-        if not found:
-            msg_warn(f"Không lấy được cookie: {reason}")
-            wait_enter()
-            return
-
-        found_cookies = []
-        if "RBXID" in found:
-            found_cookies.append(("RBXID", found["RBXID"]))
-        found_cookies.append((COOKIE_NAME, normalize_cookie(found[COOKIE_NAME])))
-
-        print(f"\n{C.GRN}✓ Tìm thấy {len(found_cookies)} cookie:{C.R}\n")
-        for name, value in found_cookies:
-            print(f"{C.LPUR}[{name}]{C.R}")
-            print(f"  {value[:50]}..." if len(value) > 50 else f"  {value}")
-            print()
-
-        print(f"{C.YEL}1. Copy toàn bộ cookie (dạng .ROBLOSECURITY){C.R}")
-        print(f"{C.YEL}2. Lưu vào file{C.R}")
-        print(f"{C.RED}0. Quay lại{C.R}\n")
-
-        sub = ask("Chọn:").strip()
-
-        if sub == "1":
-            cookie_value = found_cookies[-1][1]
-            print(f"\n{C.GRN}Cookie đã copy:{C.R}\n{cookie_value}\n")
-            msg_info("Bạn có thể dán cookie vào mục [11] > [1] Đăng nhập Cookie Roblox")
-        elif sub == "2":
-            print(f"{C.YEL}[*] Đang lấy tên tài khoản Roblox...{C.R}")
-            ok_user, data = roblox_check_cookie(found[COOKIE_NAME])
-            if ok_user and isinstance(data, dict) and data.get("name"):
-                username = data["name"]
-                msg_info(f"Tài khoản: {username} (ID {data.get('id')})")
-            else:
-                username = found.get("RBXID") or "unknown"
-                msg_warn(f"Không lấy được tên tài khoản ({data}). Dùng ID: {username}")
-
-            download_dir = "/sdcard/Download"
-            filename = f"cookie-{username}.txt"
-            filepath = f"{download_dir}/{filename}"
+    if choice == "1":
+        cookie = cookies_found[0][1]
+        import subprocess
+        try:
+            subprocess.run(["xclip", "-selection", "clipboard"], input=cookie.encode(), timeout=5)
+            msg_done(f"Đã copy vào clipboard: {cookie_preview(cookie)}")
+        except:
             try:
-                os.makedirs(download_dir, exist_ok=True)
-                with open(filepath, "w", encoding="utf-8") as f:
-                    for name, value in found_cookies:
-                        f.write(f"{value}\n")
-                msg_done(f"Đã lưu cookie vào:\n{filepath}")
-                print(f"\n{C.GRY}File: {filename}{C.R}")
-                print(f"{C.GRY}Thư mục: {download_dir}{C.R}")
-            except Exception as e:
-                msg_err(f"Lỗi khi lưu file: {str(e)}")
-                time.sleep(1)
-                return
-
+                with open(COOKIE_FILE_DEFAULT, "w") as f:
+                    f.write(cookie)
+                msg_done(f"Clipboard không khả dụng, lưu vào: {COOKIE_FILE_DEFAULT}")
+            except:
+                msg_err("Không thể copy/lưu cookie.")
         wait_enter()
 
-    except Exception as e:
-        msg_err(f"Lỗi khi lấy cookie: {str(e)}")
-        wait_enter()
+    elif choice == "2":
+        idx = ask(f"Chọn [1-{len(cookies_found)}]:").strip()
+        if idx.isdigit() and 1 <= int(idx) <= len(cookies_found):
+            cookie = cookies_found[int(idx) - 1][1]
+            import subprocess
+            try:
+                subprocess.run(["xclip", "-selection", "clipboard"], input=cookie.encode(), timeout=5)
+                msg_done(f"Đã copy vào clipboard: {cookie_preview(cookie)}")
+            except:
+                try:
+                    with open(COOKIE_FILE_DEFAULT, "w") as f:
+                        f.write(cookie)
+                    msg_done(f"Lưu vào: {COOKIE_FILE_DEFAULT}")
+                except:
+                    msg_err("Không thể copy/lưu cookie.")
+            wait_enter()
+        else:
+            msg_err("Lựa chọn không hợp lệ.")
+            wait_enter()
 
+    elif choice == "3":
+        save_file = ask("Nhập tên file (mặc định: cookies.json):").strip() or "cookies.json"
+        if not save_file.endswith(".json"):
+            save_file += ".json"
+
+        import json
+        data = {
+            "timestamp": datetime.now().isoformat(),
+            "cookies": [
+                {
+                    "package": pkg,
+                    "cookie": cookie,
+                    "preview": cookie_preview(cookie),
+                    "status": status.replace(C.GRN, "").replace(C.RED, "").replace(C.YEL, "").replace(C.R, "").strip()
+                }
+                for pkg, cookie, status in cookies_found
+            ]
+        }
+
+        try:
+            with open(save_file, "w") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            msg_done(f"Lưu {len(cookies_found)} cookie vào: {save_file}")
+        except Exception as e:
+            msg_err(f"Lỗi lưu file: {str(e)}")
+        wait_enter()
 
 def menu_cookie_roblox():
     """Menu chính cho Cookie Roblox - chọn giữa Login hoặc Get Cookie"""
@@ -6545,10 +6573,10 @@ def menu_choose_game_with_package():
     section_title("CHỌN GAME & LIÊN KẾT PACKAGE")
 
     # Step 1: Game selection
-    print(f"\n{C.WHT}Set Up {C.LPUR}|{C.R}\n")
+    print(f"\n{C.WHT}Set Up{C.R}\n")
     for k, (name, _gid) in GAMES.items():
         print(f"\033[1;37m{k}. {name}\033[0m")
-    print(f"{C.GRN}[12]{C.R} {C.WHT}Custom ID / Private Link{C.R}")
+    print(f"{C.LPUR}[12]{C.R} {C.WHT}Custom ID / Private Link{C.R}")
 
     game_choice = input(f"\n{C.WHT}Chọn game [1-12]:{C.R} ").strip()
 
@@ -6641,7 +6669,7 @@ def menu_choose_game():
     section_title("CHỌN GAME")
     for k, (name, _gid) in GAMES.items():
         print(f"\033[1;37m{k}. {name}\033[0m")
-    print(f"{C.GRN}[12]{C.R} {C.WHT}Custom ID / Private Link{C.R}")
+    print(f"{C.LPUR}[12]{C.R} {C.WHT}Custom ID / Private Link{C.R}")
     game_choice = input("Chọn game [1-12]: ").strip()
     if game_choice in GAMES:
         SELECTED_GAME_NAME, TARGET_LINK = GAMES[game_choice]
